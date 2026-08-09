@@ -1,0 +1,35 @@
+# Gradle / Android build state
+.gradle/
+.kotlin/
+**/build/
+.cxx/
+.externalNativeBuild/
+local.properties
+
+# IDE files
+.idea/
+*.iml
+
+# Local release outputs
+dist/
+*.apk
+*.apks
+*.aab
+*.idsig
+
+# Private signing material. Never commit any of these files.
+keystore.properties
+signing/
+*.jks
+*.keystore
+
+# Local environment and diagnostics
+.env
+.env.*
+!.env.example
+*.log
+*.hprof
+
+# Operating-system metadata
+.DS_Store
+**/.DS_Store

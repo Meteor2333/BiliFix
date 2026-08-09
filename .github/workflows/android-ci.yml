@@ -1,0 +1,90 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lint and build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CAN_USE_RELEASE_SIGNING: ${{ github.event_name != 'pull_request' && secrets.BILIFIX_KEYSTORE_BASE64 != '' && secrets.BILIFIX_STORE_PASSWORD != '' && secrets.BILIFIX_KEY_ALIAS != '' && secrets.BILIFIX_KEY_PASSWORD != '' }}
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
+
+      - name: Prepare release signing
+        if: env.CAN_USE_RELEASE_SIGNING == 'true'
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BILIFIX_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/bilifix-white-release.jks"
+          chmod 600 "$RUNNER_TEMP/bilifix-white-release.jks"
+          echo "BILIFIX_KEYSTORE_FILE=$RUNNER_TEMP/bilifix-white-release.jks" >> "$GITHUB_ENV"
+
+      - name: Lint and build with libxposed API 102
+        env:
+          BILIFIX_STORE_PASSWORD: ${{ secrets.BILIFIX_STORE_PASSWORD }}
+          BILIFIX_KEY_ALIAS: ${{ secrets.BILIFIX_KEY_ALIAS }}
+          BILIFIX_KEY_PASSWORD: ${{ secrets.BILIFIX_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon --stacktrace :app:lintRelease :app:assembleRelease
+
+      - name: Compile against minimum libxposed API 101
+        run: ./gradlew --no-daemon --stacktrace --rerun-tasks -PlibxposedApiVersion=101.0.1 :app:compileReleaseJavaWithJavac
+
+      - name: Name APK with release version
+        id: apk
+        shell: bash
+        run: |
+          metadata_path='app/build/outputs/apk/release/output-metadata.json'
+          version_code="$(jq -er '.elements | select(length == 1) | .[0].versionCode' "$metadata_path")"
+          version_name="$(jq -er '.elements | select(length == 1) | .[0].versionName' "$metadata_path")"
+          output_file="$(jq -er '.elements | select(length == 1) | .[0].outputFile' "$metadata_path")"
+          source_path="app/build/outputs/apk/release/$output_file"
+          apk_name="BiliFix-White-${version_name}-${version_code}"
+          target_path="app/build/outputs/apk/release/${apk_name}.apk"
+          if [[ ! -f "$source_path" ]]; then
+            printf 'Release APK not found: %s\n' "$source_path" >&2
+            exit 1
+          fi
+          if [[ "$source_path" != "$target_path" ]]; then
+            mv "$source_path" "$target_path"
+          fi
+          echo "name=$apk_name" >> "$GITHUB_OUTPUT"
+          echo "path=$target_path" >> "$GITHUB_OUTPUT"
+
+      - name: Report unsigned CI build
+        if: env.CAN_USE_RELEASE_SIGNING != 'true'
+        run: echo 'Release signing secrets are absent; this CI artifact is unsigned and must not be published.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          archive: false
+          retention-days: 14
