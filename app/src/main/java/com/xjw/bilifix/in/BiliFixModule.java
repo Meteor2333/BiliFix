@@ -21,6 +21,7 @@ import io.github.libxposed.api.XposedModule;
 import com.xjw.bilifix.in.core.HookApi;
 import com.xjw.bilifix.in.feature.article.ArticleHooks;
 import com.xjw.bilifix.in.feature.compat.CompatFeatureHooks;
+import com.xjw.bilifix.in.feature.location.IpLocationHooks;
 import com.xjw.bilifix.in.feature.share.SystemShareHooks;
 import com.xjw.bilifix.in.feature.settings.SettingsManager;
 
@@ -69,6 +70,7 @@ public final class BiliFixModule extends XposedModule implements HookApi {
 
         installApplicationSettingsHook(classLoader);
         new CompatFeatureHooks(this, classLoader).install();
+        new IpLocationHooks(this, classLoader).install();
         if (mainProcess) {
             settingsManager.installUiHooks(classLoader);
             SystemShareHooks shareHooks = new SystemShareHooks(this, classLoader);
@@ -198,6 +200,11 @@ public final class BiliFixModule extends XposedModule implements HookApi {
     @Override
     public boolean isWalletFixEnabled() {
         return settingsManager.isWalletFixEnabled();
+    }
+
+    @Override
+    public boolean isIpLocationEnabled() {
+        return settingsManager.isIpLocationEnabled();
     }
 
     @Override

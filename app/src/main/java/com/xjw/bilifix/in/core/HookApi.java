@@ -26,6 +26,8 @@ public interface HookApi {
 
     boolean isWalletFixEnabled();
 
+    boolean isIpLocationEnabled();
+
     boolean isSystemShareEnabled();
 
     boolean deoptimizeFeatureMethod(Method method);

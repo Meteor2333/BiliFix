@@ -6,6 +6,7 @@ import static com.xjw.bilifix.in.feature.settings.SettingsManager.ADVANCED_SETTI
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.ARG_BILIFIX_SETTINGS_PAGE;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_ABOUT;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_ARTICLE_FIX_ENABLED;
+import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_IP_LOCATION_ENABLED;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_REGION_FIX_ENABLED;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_RELATION_FIX_ENABLED;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_SETTINGS_ENTRY;
@@ -223,7 +224,6 @@ final class SettingsUiHooks {
                                 addPreference, setKey, setTitle, setSummary,
                                 setPersistent, setOrder,
                                 setOnPreferenceChangeListener, setChecked);
-
                         Object enhanceCategory = createCategory(
                                 context, categoryConstructor, categoryTitleLayout,
                                 "增强", 1, setTitle, setLayoutResource, setOrder);
@@ -233,6 +233,15 @@ final class SettingsUiHooks {
                                 "系统分享",
                                 "为部分图片分享增加系统分享按钮",
                                 settings.isSystemShareEnabled(), 0,
+                                changeListenerClass, context,
+                                addPreference, setKey, setTitle, setSummary,
+                                setPersistent, setOrder,
+                                setOnPreferenceChangeListener, setChecked);
+                        addSwitch(enhanceCategory, switchConstructor,
+                                KEY_IP_LOCATION_ENABLED,
+                                "显示IP属地",
+                                "和国内版一样在评论区和用户主页显示IP属地",
+                                settings.isIpLocationEnabled(), 1,
                                 changeListenerClass, context,
                                 addPreference, setKey, setTitle, setSummary,
                                 setPersistent, setOrder,
@@ -259,6 +268,7 @@ final class SettingsUiHooks {
                                 + " regionFix=" + settings.isRegionFixEnabled()
                                 + " relationFix=" + settings.isRelationFixEnabled()
                                 + " walletFix=" + settings.isWalletFixEnabled()
+                                + " ipLocation=" + settings.isIpLocationEnabled()
                                 + " systemShare=" + settings.isSystemShareEnabled());
                         return null;
                     } catch (Throwable throwable) {
