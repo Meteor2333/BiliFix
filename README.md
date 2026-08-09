@@ -7,7 +7,7 @@
 ## 兼容性
 
 - 仅支持哔哩哔哩国际白版 `(com.bilibili.app.in)` 3.20.4
-- Xposed API：101 或更高版本
+- Xposed API 101 或更高版本
 
 ## 功能
 

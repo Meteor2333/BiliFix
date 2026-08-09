@@ -354,7 +354,7 @@ public final class SystemShareHooks {
             try {
                 Object fragment = listenerFragment.get(hookChain.getThisObject());
                 Context context = contextFromFragment(fragment);
-                String source = extractCommentImageUrl(fragment);
+                List<String> sources = extractCommentImageUrls(fragment);
                 View imageView = null;
                 if (fragment != null) {
                     Object value = findField(fragment.getClass(), "H").get(fragment);
@@ -363,7 +363,7 @@ public final class SystemShareHooks {
                     }
                 }
                 imageShareManager.startImageShare(
-                        context, source, imageView, null, "comment-image");
+                        context, sources, imageView, null, "comment-image");
                 return Boolean.TRUE;
             } catch (Throwable throwable) {
                 module.error("comment image system-share click failed", throwable);
@@ -439,29 +439,32 @@ public final class SystemShareHooks {
         return PosterSource.NONE;
     }
 
-    private String extractCommentImageUrl(Object fragment) {
+    private List<String> extractCommentImageUrls(Object fragment) {
+        List<String> sources = new ArrayList<>(4);
         if (fragment == null) {
-            return null;
+            return sources;
         }
         try {
             Object item = findField(fragment.getClass(), "N").get(fragment);
             if (item == null) {
-                return null;
+                return sources;
             }
             for (String name : new String[]{"a", "d", "e", "g"}) {
                 try {
                     Object value = invoke(findMethod(item.getClass(), name), item);
-                    if (value != null && !String.valueOf(value).isEmpty()) {
-                        return String.valueOf(value);
+                    String source = value == null ? null : String.valueOf(value);
+                    if (source != null && !source.isEmpty() && !sources.contains(source)) {
+                        sources.add(source);
                     }
                 } catch (Throwable ignored) {
                     // Try the next quality level exposed by ImageItem.
                 }
             }
+            module.debug("comment image share sources extracted: count=" + sources.size());
         } catch (Throwable throwable) {
             module.error("comment image URL extraction failed", throwable);
         }
-        return null;
+        return sources;
     }
 
     private View findDialogView(Object dialogObject, String resourceName) throws Throwable {

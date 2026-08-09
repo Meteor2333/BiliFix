@@ -12,6 +12,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -26,6 +27,14 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,6 +44,7 @@ final class ImageShareManager {
     private static final String FILE_PROVIDER_AUTHORITY = TARGET_PACKAGE + ".fileprovider";
     private static final long MAX_SHARE_BYTES = 64L * 1024L * 1024L;
     private static final long MAX_FALLBACK_PIXELS = 8L * 1024L * 1024L;
+    private static final int MAX_REUSABLE_SOURCE_ENTRIES = 64;
 
     private final HookApi module;
     private final ClassLoader classLoader;
@@ -46,8 +56,9 @@ final class ImageShareManager {
         return thread;
     });
 
-    private volatile Method cachedImageLookup;
-    private volatile Method fallbackImageLookup;
+    private final Map<String, File> reusableSourceFiles =
+            new LinkedHashMap<>(16, 0.75f, true);
+    private volatile Method imageCacheLookup;
     private volatile Method fileProviderGetUri;
 
     ImageShareManager(HookApi module, ClassLoader classLoader) {
@@ -65,6 +76,18 @@ final class ImageShareManager {
             View fallbackView,
             String text,
             String label) {
+        startImageShare(context,
+                source == null ? Collections.emptyList() : Collections.singletonList(source),
+                fallbackView, text, label);
+    }
+
+    void startImageShare(
+            Context context,
+            List<String> sources,
+            View fallbackView,
+            String text,
+            String label) {
+        long queuedAt = SystemClock.elapsedRealtime();
         Context safeContext = context == null ? currentApplication() : context;
         if (safeContext == null) {
             module.warn("system share rejected: no context label=" + label);
@@ -75,18 +98,28 @@ final class ImageShareManager {
         if (appContext == null) {
             appContext = safeContext;
         }
+        List<String> normalizedSources = normalizeSources(sources);
         Bitmap fallback = snapshotView(fallbackView);
         Context finalContext = appContext;
         Bitmap finalFallback = fallback;
         module.info("system share queued: label=" + label
-                + " source=" + describeSource(source)
-                + " fallback=" + (fallback != null));
+                + " source=" + describeSource(firstSource(normalizedSources))
+                + " candidates=" + normalizedSources.size()
+                + " fallback=" + (fallback != null)
+                + " captureMs=" + (SystemClock.elapsedRealtime() - queuedAt));
         executor.execute(() -> {
             File shareFile = null;
+            String preparationPath = "none";
             try {
-                shareFile = materializeSource(finalContext, source, label);
+                MaterializedImage materialized = materializeSources(
+                        finalContext, normalizedSources, label);
+                if (materialized != null) {
+                    shareFile = materialized.file;
+                    preparationPath = materialized.path;
+                }
                 if (shareFile == null && finalFallback != null) {
                     shareFile = saveBitmap(finalContext, finalFallback, label);
+                    preparationPath = "view-snapshot";
                 }
                 if (shareFile == null || shareFile.length() <= 0L) {
                     throw new IllegalStateException("no shareable image available");
@@ -105,13 +138,19 @@ final class ImageShareManager {
                 chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 File completedFile = shareFile;
+                String completedPath = preparationPath;
+                long preparedAt = SystemClock.elapsedRealtime();
                 mainHandler.post(() -> {
                     try {
                         finalContext.startActivity(chooser);
                         module.info("system share chooser launched: label=" + label
+                                + " path=" + completedPath
                                 + " file=" + completedFile.getName()
                                 + " bytes=" + completedFile.length()
-                                + " mime=" + mime);
+                                + " mime=" + mime
+                                + " prepareMs=" + (preparedAt - queuedAt)
+                                + " totalMs="
+                                + (SystemClock.elapsedRealtime() - queuedAt));
                     } catch (Throwable throwable) {
                         module.error("system share chooser launch failed: label=" + label,
                                 throwable);
@@ -133,59 +172,137 @@ final class ImageShareManager {
         });
     }
 
-    private File materializeSource(Context context, String source, String label)
-            throws Throwable {
-        if (source == null || source.isEmpty()) {
-            return null;
-        }
-        String normalized = source.startsWith("//") ? "https:" + source : source;
-        File direct = null;
-        if (normalized.startsWith("file://")) {
-            direct = new File(Uri.parse(normalized).getPath());
-        } else if (normalized.startsWith("/")) {
-            direct = new File(normalized);
-        }
-        if (isReadableImageCandidate(direct)) {
-            return copyIntoShareCache(context, direct, label);
+    private MaterializedImage materializeSources(
+            Context context, List<String> sources, String label) throws Throwable {
+        File reusable = findReusableSourceFile(sources);
+        if (isReadableImageCandidate(reusable)) {
+            module.debug("system share reusable file hit: label=" + label
+                    + " bytes=" + reusable.length());
+            return new MaterializedImage(reusable, "bilifix-cache");
         }
 
-        File cached = findCachedImage(normalized);
-        if (isReadableImageCandidate(cached)) {
-            module.debug("system share image cache hit: label=" + label
-                    + " bytes=" + cached.length());
-            return copyIntoShareCache(context, cached, label);
+        for (String source : sources) {
+            File direct = null;
+            if (source.startsWith("file://")) {
+                direct = new File(Uri.parse(source).getPath());
+            } else if (source.startsWith("/")) {
+                direct = new File(source);
+            }
+            if (isReadableImageCandidate(direct)) {
+                File copied = copyIntoShareCache(context, direct, label);
+                rememberSourceFiles(sources, copied);
+                return new MaterializedImage(copied, "local-file");
+            }
         }
-        if (!normalized.startsWith("https://") && !normalized.startsWith("http://")) {
+
+        for (String source : sources) {
+            File cached = findCachedImage(source);
+            if (isReadableImageCandidate(cached)) {
+                module.debug("system share image cache hit: label=" + label
+                        + " source=" + describeSource(source)
+                        + " bytes=" + cached.length());
+                File copied = copyIntoShareCache(context, cached, label);
+                rememberSourceFiles(sources, copied);
+                return new MaterializedImage(copied, "host-cache");
+            }
+        }
+
+        String downloadSource = firstHttpSource(sources);
+        if (downloadSource == null) {
             return null;
         }
-        return downloadIntoShareCache(context, normalized, label);
+        File downloaded = downloadIntoShareCache(context, downloadSource, label);
+        if (isReadableImageCandidate(downloaded)) {
+            rememberSourceFiles(sources, downloaded);
+            return new MaterializedImage(downloaded, "network");
+        }
+        return null;
     }
 
     private File findCachedImage(String source) {
-        for (boolean original : new boolean[]{false, true}) {
+        for (boolean smallCache : new boolean[]{false, true}) {
             try {
-                Method method = cachedImageLookup;
+                Method method = imageCacheLookup;
                 if (method != null) {
-                    Object value = invoke(method, null, source, original);
+                    Object value = invoke(method, null, source, smallCache);
                     if (value instanceof File && isReadableImageCandidate((File) value)) {
                         return (File) value;
                     }
                 }
             } catch (Throwable throwable) {
-                module.debug("primary image cache lookup failed: " + throwable);
+                module.debug("image cache lookup failed: " + throwable);
             }
         }
-        for (boolean original : new boolean[]{false, true}) {
-            try {
-                Method method = fallbackImageLookup;
-                if (method != null) {
-                    Object value = invoke(method, null, source, original);
-                    if (value instanceof File && isReadableImageCandidate((File) value)) {
-                        return (File) value;
-                    }
-                }
-            } catch (Throwable throwable) {
-                module.debug("fallback image cache lookup failed: " + throwable);
+        return null;
+    }
+
+    private synchronized File findReusableSourceFile(List<String> sources) {
+        for (String source : sources) {
+            File file = reusableSourceFiles.get(source);
+            if (isReadableImageCandidate(file)) {
+                return file;
+            }
+            if (file != null) {
+                reusableSourceFiles.remove(source);
+            }
+        }
+        return null;
+    }
+
+    private synchronized void rememberSourceFiles(List<String> sources, File file) {
+        if (!isReadableImageCandidate(file)) {
+            return;
+        }
+        for (String source : sources) {
+            reusableSourceFiles.put(source, file);
+        }
+        Iterator<Map.Entry<String, File>> iterator =
+                reusableSourceFiles.entrySet().iterator();
+        while (reusableSourceFiles.size() > MAX_REUSABLE_SOURCE_ENTRIES
+                && iterator.hasNext()) {
+            iterator.next();
+            iterator.remove();
+        }
+    }
+
+    private static List<String> normalizeSources(List<String> sources) {
+        if (sources == null || sources.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String source : sources) {
+            if (source == null) {
+                continue;
+            }
+            String value = source.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            if (value.startsWith("//")) {
+                value = "https:" + value;
+            }
+            normalized.add(value);
+            if (value.startsWith("http://")) {
+                normalized.add("https://" + value.substring("http://".length()));
+            }
+        }
+        return normalized.isEmpty()
+                ? Collections.emptyList() : new ArrayList<>(normalized);
+    }
+
+    private static String firstSource(List<String> sources) {
+        return sources.isEmpty() ? null : sources.get(0);
+    }
+
+    private static String firstHttpSource(List<String> sources) {
+        for (String source : sources) {
+            if (source.startsWith("https://")) {
+                return source;
+            }
+        }
+        for (String source : sources) {
+            if (source.startsWith("http://")) {
+                return source;
             }
         }
         return null;
@@ -193,6 +310,7 @@ final class ImageShareManager {
 
     private File downloadIntoShareCache(Context context, String source, String label)
             throws Throwable {
+        long startedAt = SystemClock.elapsedRealtime();
         Class<?> clientClass = module.load(classLoader, "okhttp3.y");
         Class<?> requestBuilderClass = module.load(classLoader, "okhttp3.a0$a");
         Object client = clientClass.getConstructor().newInstance();
@@ -231,7 +349,9 @@ final class ImageShareManager {
                 completed = moveToTypedShareFile(context, output, label);
                 module.info("system share image downloaded: label=" + label
                         + " file=" + completed.getName()
-                        + " bytes=" + completed.length());
+                        + " bytes=" + completed.length()
+                        + " downloadMs="
+                        + (SystemClock.elapsedRealtime() - startedAt));
                 return completed;
             }
             deleteQuietly(output);
@@ -378,22 +498,13 @@ final class ImageShareManager {
 
     void resolveImageCacheHelpers() {
         try {
-            Class<?> extensionClass = module.load(classLoader,
-                    "com.bilibili.lib.imageviewer.utils.ImageExtentionKt");
-            cachedImageLookup = module.declaredMethod(
-                    extensionClass, "X", String.class, boolean.class);
-            module.info("primary image cache helper resolved");
-        } catch (Throwable throwable) {
-            module.error("primary image cache helper unavailable", throwable);
-        }
-        try {
             Class<?> helperClass = module.load(classLoader,
                     "com.bilibili.lib.image2.BiliImageLoaderHelper");
-            fallbackImageLookup = module.declaredMethod(
+            imageCacheLookup = module.declaredMethod(
                     helperClass, "p", String.class, boolean.class);
-            module.info("fallback image cache helper resolved");
+            module.info("non-blocking image cache helper resolved");
         } catch (Throwable throwable) {
-            module.error("fallback image cache helper unavailable", throwable);
+            module.error("non-blocking image cache helper unavailable", throwable);
         }
     }
 
@@ -565,6 +676,16 @@ final class ImageShareManager {
         }
     }
 
+    private static final class MaterializedImage {
+        final File file;
+        final String path;
+
+        MaterializedImage(File file, String path) {
+            this.file = file;
+            this.path = path;
+        }
+    }
+
     private void installGroup(String label, ThrowingAction action) {
         try {
             action.run();
@@ -579,4 +700,3 @@ final class ImageShareManager {
         void run() throws Throwable;
     }
 }
-
