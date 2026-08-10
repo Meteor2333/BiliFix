@@ -15,9 +15,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Supplies the domestic request identity needed by the host's existing IP location UI. */
+/** Supplies a compatible request identity needed by the host's existing IP location UI. */
 public final class IpLocationHooks {
-    private static final String DOMESTIC_MOBI_APP = "android";
+    private static final String PROFILE_MOBI_APP = "android";
+    private static final String COMMENT_MOBI_APP = "android_hd";
+    private static final int COMMENT_BUILD = 2001100;
+    private static final int COMMENT_APP_ID = 5;
+    private static final String COMMENT_VERSION_NAME = "2.0.1";
+    private static final String COMMENT_CHANNEL = "master";
     private static final String REPLY_SERVICE =
             "bilibili.main.community.reply.v1.Reply/";
     private static final String PROFILE_PATH = "/x/v2/space";
@@ -49,9 +54,7 @@ public final class IpLocationHooks {
     private final AtomicInteger commentHitLogCount = new AtomicInteger();
     private final AtomicInteger commentMissLogCount = new AtomicInteger();
     private final AtomicInteger profileLogCount = new AtomicInteger();
-
-    private volatile ProtoMobiAppRewriter metadataRewriter;
-    private volatile ProtoMobiAppRewriter deviceRewriter;
+    private final AtomicInteger mainListLogCount = new AtomicInteger();
 
     public IpLocationHooks(HookApi module, ClassLoader classLoader) {
         this.module = module;
@@ -61,6 +64,7 @@ public final class IpLocationHooks {
     public void install() {
         installGroup("profile and REST comment request identity", this::installRestIdentityHooks);
         installGroup("Moss comment request identity", this::installMossIdentityHooks);
+        installGroup("MainList pagination diagnostics", this::installMainListDiagnostics);
         installGroup("comment response diagnostics", this::installCommentDiagnostics);
         installGroup("profile bottom-tag diagnostics", this::installProfileBottomTagDiagnostics);
         installGroup("profile header-tag diagnostics", this::installProfileHeaderTagDiagnostics);
@@ -99,7 +103,7 @@ public final class IpLocationHooks {
             }
             Uri uri = Uri.parse(url);
             String source = kind.logName + " " + uri.getHost() + uri.getEncodedPath();
-            logTargetRequest(source);
+            logTargetRequest(kind, source);
             return withScope(kind, source, hookChain::proceed);
         });
 
@@ -117,11 +121,16 @@ public final class IpLocationHooks {
             }
             @SuppressWarnings("unchecked")
             Map<Object, Object> parameters = (Map<Object, Object>) value;
-            parameters.put("mobi_app", DOMESTIC_MOBI_APP);
-            parameters.put("appkey",
-                    module.invoke(domesticAppKey, null, DOMESTIC_MOBI_APP));
+            String mobiApp = scope.kind == ScopeKind.PROFILE_REST
+                    ? PROFILE_MOBI_APP : COMMENT_MOBI_APP;
+            parameters.put("mobi_app", mobiApp);
+            parameters.put("appkey", module.invoke(domesticAppKey, null, mobiApp));
+            if (scope.kind == ScopeKind.COMMENT_REST) {
+                parameters.put("build", String.valueOf(COMMENT_BUILD));
+                parameters.put("channel", COMMENT_CHANNEL);
+            }
             module.debug("IP location REST parameters rewritten: source="
-                    + scope.source + " mobi_app=" + DOMESTIC_MOBI_APP
+                    + scope.source + " mobi_app=" + mobiApp
                     + " build=" + parameters.get("build"));
             return result;
         });
@@ -134,8 +143,7 @@ public final class IpLocationHooks {
                 return result;
             }
             String original = (String) result;
-            String rewritten = original.replace(
-                    "mobi_app/android_i", "mobi_app/android");
+            String rewritten = rewriteRestUserAgent(original, scope.kind);
             if (!original.equals(rewritten)) {
                 module.debug("IP location REST user agent rewritten: source="
                         + scope.source);
@@ -145,20 +153,24 @@ public final class IpLocationHooks {
     }
 
     private void installMossIdentityHooks() throws Throwable {
-        ProtoMobiAppRewriter metadata = new ProtoMobiAppRewriter(
-                module, classLoader, "com.bapis.bilibili.metadata.Metadata");
-        ProtoMobiAppRewriter device = new ProtoMobiAppRewriter(
-                module, classLoader, "com.bapis.bilibili.metadata.device.Device");
-        metadataRewriter = metadata;
-        deviceRewriter = device;
+        ProtoIdentityRewriter metadata = new ProtoIdentityRewriter(
+                module, classLoader, "com.bapis.bilibili.metadata.Metadata", false);
+        ProtoIdentityRewriter device = new ProtoIdentityRewriter(
+                module, classLoader, "com.bapis.bilibili.metadata.device.Device", true);
+        ProtoFawkesRewriter fawkes = new ProtoFawkesRewriter(
+                module, classLoader,
+                "com.bapis.bilibili.metadata.fawkes.FawkesReq");
 
         Class<?> metadataFactoryClass = module.load(classLoader, "if1.a");
         Method createMetadata = module.declaredMethod(metadataFactoryClass, "n");
         Method createDevice = module.declaredMethod(metadataFactoryClass, "k");
+        Method createFawkes = module.declaredMethod(metadataFactoryClass, "i");
         module.deoptimizeFeatureMethod(createMetadata);
         module.deoptimizeFeatureMethod(createDevice);
+        module.deoptimizeFeatureMethod(createFawkes);
         installProtoRewriteHook("IP location Moss metadata", createMetadata, metadata);
         installProtoRewriteHook("IP location Moss device", createDevice, device);
+        installProtoRewriteHook("IP location Moss Fawkes", createFawkes, fawkes);
 
         Class<?> methodDescriptorClass = module.load(classLoader, "io.grpc.MethodDescriptor");
         Class<?> generatedMessageClass = module.load(classLoader,
@@ -185,7 +197,7 @@ public final class IpLocationHooks {
     }
 
     private void installProtoRewriteHook(
-            String label, Method factory, ProtoMobiAppRewriter rewriter) {
+            String label, Method factory, ProtoRewriter rewriter) {
         module.addHook(label, factory, hookChain -> {
             Object result = hookChain.proceed();
             RequestScope scope = requestScope.get();
@@ -195,15 +207,15 @@ public final class IpLocationHooks {
             }
             try {
                 ProtoRewriteResult rewritten = rewriter.rewrite((byte[]) result);
-                if (metadataLogCount.incrementAndGet() <= 30) {
+                if (shouldSample(metadataLogCount.incrementAndGet(), 30, 100)) {
                     module.debug(label + " rewritten: source=" + scope.source
-                            + " oldMobiApp=" + rewritten.originalMobiApp
-                            + " newMobiApp=" + rewritten.rewrittenMobiApp
+                            + " oldIdentity=" + rewritten.originalIdentity
+                            + " newIdentity=" + rewritten.rewrittenIdentity
                             + " bytes=" + rewritten.bytes.length);
                 }
                 return rewritten.bytes;
             } catch (Throwable throwable) {
-                module.error(label + " rewrite failed; original metadata retained: source="
+                module.error(label + " rewrite failed; original bytes retained: source="
                         + scope.source, throwable);
                 return result;
             }
@@ -223,7 +235,7 @@ public final class IpLocationHooks {
             if (!module.isIpLocationEnabled()) {
                 return hookChain.proceed();
             }
-            logTargetRequest("Moss " + fullMethodName);
+            logTargetRequest(ScopeKind.COMMENT_RPC, "Moss " + fullMethodName);
             return withScope(ScopeKind.COMMENT_RPC,
                     "Moss " + fullMethodName, hookChain::proceed);
         });
@@ -251,9 +263,102 @@ public final class IpLocationHooks {
             }
             Uri uri = Uri.parse(url);
             String source = "Moss-OkHttp " + uri.getEncodedPath();
-            logTargetRequest(source);
+            logTargetRequest(ScopeKind.COMMENT_RPC, source);
             return withScope(ScopeKind.COMMENT_RPC, source, hookChain::proceed);
         });
+    }
+
+    private void installMainListDiagnostics() throws Throwable {
+        Class<?> replyClass = module.load(classLoader,
+                "com.bapis.bilibili.main.community.reply.v1.MainListReply");
+        Class<?> replyInfoClass = module.load(classLoader,
+                "com.bapis.bilibili.main.community.reply.v1.ReplyInfo");
+        Class<?> replyControlClass = module.load(classLoader,
+                "com.bapis.bilibili.main.community.reply.v1.ReplyControl");
+        Class<?> paginationClass = module.load(classLoader,
+                "com.bapis.bilibili.pagination.FeedPaginationReply");
+        Class<?> converterClass = module.load(classLoader,
+                "com.bilibili.app.comment3.data.source.v1.b");
+        Class<?> searchWordHelperClass = module.load(classLoader,
+                "com.bilibili.app.comment3.utils.q");
+
+        Method convert = module.declaredMethod(converterClass, "m0",
+                replyClass, long.class, searchWordHelperClass, boolean.class);
+        Method getRepliesCount = module.publicMethod(replyClass, "getRepliesCount");
+        Method getRepliesList = module.publicMethod(replyClass, "getRepliesList");
+        Method getTopRepliesCount = module.publicMethod(replyClass, "getTopRepliesCount");
+        Method hasPaginationReply = module.publicMethod(replyClass, "hasPaginationReply");
+        Method getPaginationReply = module.publicMethod(replyClass, "getPaginationReply");
+        Method getPaginationEndText = module.publicMethod(replyClass,
+                "getPaginationEndText");
+        Method getPrevOffset = module.publicMethod(paginationClass, "getPrevOffset");
+        Method getNextOffset = module.publicMethod(paginationClass, "getNextOffset");
+        Method getReplyControl = module.publicMethod(replyInfoClass, "getReplyControl");
+        Method getLocation = module.publicMethod(replyControlClass, "getLocation");
+
+        module.deoptimizeFeatureMethod(convert);
+        module.addHook("IP location MainList response diagnostics", convert, hookChain -> {
+            if (module.isIpLocationEnabled()) {
+                Object reply = hookChain.getArg(0);
+                int replies = ((Number) module.invoke(getRepliesCount, reply)).intValue();
+                int topReplies = ((Number) module.invoke(
+                        getTopRepliesCount, reply)).intValue();
+                boolean hasPagination = (Boolean) module.invoke(
+                        hasPaginationReply, reply);
+                Object pagination = module.invoke(getPaginationReply, reply);
+                String prevOffset = String.valueOf(module.invoke(getPrevOffset, pagination));
+                String nextOffset = String.valueOf(module.invoke(getNextOffset, pagination));
+                String endText = String.valueOf(module.invoke(getPaginationEndText, reply));
+                boolean firstPage = Boolean.TRUE.equals(hookChain.getArg(3));
+                boolean sparseFirstPage = firstPage && replies == 3 && topReplies == 0
+                        && !hasPagination && nextOffset.isEmpty() && endText.isEmpty();
+                int sequence = mainListLogCount.incrementAndGet();
+                if (sparseFirstPage || shouldSample(sequence, 10, 50)) {
+                    LocationSummary locationSummary = inspectMainListLocations(
+                            module.invoke(getRepliesList, reply), getReplyControl, getLocation);
+                    String message = "IP location MainList response: firstPage=" + firstPage
+                            + " replies=" + replies
+                            + " topReplies=" + topReplies
+                            + " hasPagination=" + hasPagination
+                            + " prevOffsetLength=" + prevOffset.length()
+                            + " nextOffsetLength=" + nextOffset.length()
+                            + " locationsPresent=" + locationSummary.present
+                            + " locationsMissing=" + locationSummary.missing
+                            + " sampleLocation=" + locationSummary.sample
+                            + " endText=" + endText;
+                    if (sparseFirstPage) {
+                        module.warn(message + " sparse-three-reply signature=true");
+                    } else {
+                        module.info(message);
+                    }
+                }
+            }
+            return hookChain.proceed();
+        });
+    }
+
+    private LocationSummary inspectMainListLocations(
+            Object value, Method getReplyControl, Method getLocation) throws Throwable {
+        if (!(value instanceof List)) {
+            return new LocationSummary(0, 0, "");
+        }
+        int present = 0;
+        int missing = 0;
+        String sample = "";
+        for (Object reply : (List<?>) value) {
+            Object control = reply == null ? null : module.invoke(getReplyControl, reply);
+            Object locationValue = control == null ? null : module.invoke(getLocation, control);
+            String location = locationValue instanceof String ? (String) locationValue : "";
+            if (location.isEmpty()) {
+                missing++;
+            } else {
+                present++;
+                if (sample.isEmpty()) {
+                    sample = location;
+                }
+            }
+        }
+        return new LocationSummary(present, missing, sample);
     }
 
     private void installCommentDiagnostics() throws Throwable {
@@ -324,18 +429,19 @@ public final class IpLocationHooks {
         }
         String location = value instanceof String ? (String) value : null;
         if (location != null && !location.isEmpty()) {
-            if (commentHitLogCount.incrementAndGet() <= 20) {
+            if (shouldSample(commentHitLogCount.incrementAndGet(), 20, 200)) {
                 module.info("IP location received for comment: source=" + source
                         + " value=" + location);
             }
-        } else if (commentMissLogCount.incrementAndGet() <= 5) {
-            module.debug("IP location absent from comment response: source=" + source);
+        } else if (shouldSample(commentMissLogCount.incrementAndGet(), 10, 100)) {
+            module.debug("IP location absent from comment response: source=" + source
+                    + " sample=" + commentMissLogCount.get());
         }
     }
 
     private void logProfileTags(String source, Object value, Field type, Field title) {
         int sequence = profileLogCount.incrementAndGet();
-        if (sequence > 20) {
+        if (!shouldSample(sequence, 20, 100)) {
             return;
         }
         if (!(value instanceof List)) {
@@ -402,6 +508,18 @@ public final class IpLocationHooks {
         return COMMENT_RPC_READ_METHODS.contains(value.substring(methodStart, methodEnd));
     }
 
+    private static String rewriteRestUserAgent(String original, ScopeKind kind) {
+        if (kind == ScopeKind.PROFILE_REST) {
+            return original.replace("mobi_app/android_i", "mobi_app/android");
+        }
+        return original
+                .replace("BiliDroid/3.20.4", "BiliDroid/" + COMMENT_VERSION_NAME)
+                .replace("mobi_app/android_i", "mobi_app/" + COMMENT_MOBI_APP)
+                .replace("build/8230800", "build/" + COMMENT_BUILD)
+                .replace("innerVer/8230800", "innerVer/" + COMMENT_BUILD)
+                .replace("channel/biliintl", "channel/" + COMMENT_CHANNEL);
+    }
+
     private Object withScope(
             ScopeKind kind, String source, ThrowingSupplier action) throws Throwable {
         RequestScope previous = requestScope.get();
@@ -417,10 +535,14 @@ public final class IpLocationHooks {
         }
     }
 
-    private void logTargetRequest(String source) {
-        if (requestLogCount.incrementAndGet() <= 30) {
-            module.info("IP location domestic identity enabled: source=" + source
-                    + " mobi_app=" + DOMESTIC_MOBI_APP);
+    private void logTargetRequest(ScopeKind kind, String source) {
+        int sequence = requestLogCount.incrementAndGet();
+        if (shouldSample(sequence, 30, 100)) {
+            String identity = kind == ScopeKind.PROFILE_REST
+                    ? PROFILE_MOBI_APP + "/host-build"
+                    : commentIdentity(false);
+            module.info("IP location compatible identity enabled: source=" + source
+                    + " identity=" + identity + " sample=" + sequence);
         }
     }
 
@@ -456,6 +578,18 @@ public final class IpLocationHooks {
         return Collections.unmodifiableSet(new HashSet<>(Arrays.asList(values)));
     }
 
+    private static boolean shouldSample(int sequence, int initialCount, int interval) {
+        return sequence <= initialCount || sequence % interval == 0;
+    }
+
+    private static String commentIdentity(boolean includeDeviceDetails) {
+        String identity = COMMENT_MOBI_APP + "/" + COMMENT_BUILD + "/" + COMMENT_CHANNEL;
+        if (includeDeviceDetails) {
+            identity += "/appId=" + COMMENT_APP_ID + "/version=" + COMMENT_VERSION_NAME;
+        }
+        return identity;
+    }
+
     private enum ScopeKind {
         PROFILE_REST("profile-rest"),
         COMMENT_REST("comment-rest"),
@@ -482,37 +616,89 @@ public final class IpLocationHooks {
         }
     }
 
-    private static final class ProtoMobiAppRewriter {
+    private static final class LocationSummary {
+        private final int present;
+        private final int missing;
+        private final String sample;
+
+        private LocationSummary(int present, int missing, String sample) {
+            this.present = present;
+            this.missing = missing;
+            this.sample = sample;
+        }
+    }
+
+    private static final class ProtoIdentityRewriter implements ProtoRewriter {
         private final HookApi module;
+        private final boolean includesDeviceDetails;
         private final Method parseFrom;
         private final Method getMobiApp;
+        private final Method getBuild;
+        private final Method getChannel;
+        private final Method getAppId;
+        private final Method getVersionName;
         private final Method toBuilder;
         private final Method setMobiApp;
+        private final Method setBuild;
+        private final Method setChannel;
+        private final Method setAppId;
+        private final Method setVersionName;
         private final Method build;
         private final Method toByteArray;
 
-        private ProtoMobiAppRewriter(
-                HookApi module, ClassLoader classLoader, String messageClassName)
+        private ProtoIdentityRewriter(
+                HookApi module, ClassLoader classLoader, String messageClassName,
+                boolean includesDeviceDetails)
                 throws Throwable {
             this.module = module;
+            this.includesDeviceDetails = includesDeviceDetails;
             Class<?> messageClass = module.load(classLoader, messageClassName);
             Class<?> builderClass = module.load(classLoader, messageClassName + "$b");
             parseFrom = module.publicMethod(messageClass, "parseFrom", byte[].class);
             getMobiApp = module.publicMethod(messageClass, "getMobiApp");
+            getBuild = module.publicMethod(messageClass, "getBuild");
+            getChannel = module.publicMethod(messageClass, "getChannel");
+            getAppId = includesDeviceDetails
+                    ? module.publicMethod(messageClass, "getAppId") : null;
+            getVersionName = includesDeviceDetails
+                    ? module.publicMethod(messageClass, "getVersionName") : null;
             toBuilder = module.publicMethod(messageClass, "toBuilder");
             setMobiApp = module.publicMethod(builderClass, "setMobiApp", String.class);
+            setBuild = module.publicMethod(builderClass, "setBuild", int.class);
+            setChannel = module.publicMethod(builderClass, "setChannel", String.class);
+            setAppId = includesDeviceDetails
+                    ? module.publicMethod(builderClass, "setAppId", int.class) : null;
+            setVersionName = includesDeviceDetails
+                    ? module.publicMethod(builderClass, "setVersionName", String.class) : null;
             build = module.publicMethod(builderClass, "build");
             toByteArray = module.publicMethod(messageClass, "toByteArray");
         }
 
-        private ProtoRewriteResult rewrite(byte[] source) throws Throwable {
+        @Override
+        public ProtoRewriteResult rewrite(byte[] source) throws Throwable {
             Object message = module.invoke(parseFrom, null, (Object) source);
-            String original = String.valueOf(module.invoke(getMobiApp, message));
-            if (DOMESTIC_MOBI_APP.equals(original)) {
-                return new ProtoRewriteResult(source, original, original);
+            String originalMobiApp = String.valueOf(module.invoke(getMobiApp, message));
+            int originalBuild = ((Number) module.invoke(getBuild, message)).intValue();
+            String originalChannel = String.valueOf(module.invoke(getChannel, message));
+            int originalAppId = includesDeviceDetails
+                    ? ((Number) module.invoke(getAppId, message)).intValue() : 0;
+            String originalVersionName = includesDeviceDetails
+                    ? String.valueOf(module.invoke(getVersionName, message)) : null;
+            String originalIdentity = originalMobiApp + "/" + originalBuild
+                    + "/" + originalChannel;
+            if (includesDeviceDetails) {
+                originalIdentity += "/appId=" + originalAppId
+                        + "/version=" + originalVersionName;
             }
+
             Object builder = module.invoke(toBuilder, message);
-            module.invoke(setMobiApp, builder, DOMESTIC_MOBI_APP);
+            module.invoke(setMobiApp, builder, COMMENT_MOBI_APP);
+            module.invoke(setBuild, builder, COMMENT_BUILD);
+            module.invoke(setChannel, builder, COMMENT_CHANNEL);
+            if (includesDeviceDetails) {
+                module.invoke(setAppId, builder, COMMENT_APP_ID);
+                module.invoke(setVersionName, builder, COMMENT_VERSION_NAME);
+            }
             Object rewrittenMessage = module.invoke(build, builder);
             Object rewrittenBytes = module.invoke(toByteArray, rewrittenMessage);
             if (!(rewrittenBytes instanceof byte[])) {
@@ -520,21 +706,69 @@ public final class IpLocationHooks {
                         + summarize(rewrittenBytes));
             }
             return new ProtoRewriteResult(
-                    (byte[]) rewrittenBytes, original, DOMESTIC_MOBI_APP);
+                    (byte[]) rewrittenBytes, originalIdentity,
+                    commentIdentity(includesDeviceDetails));
+        }
+    }
+
+    private static final class ProtoFawkesRewriter implements ProtoRewriter {
+        private final HookApi module;
+        private final Method parseFrom;
+        private final Method getAppkey;
+        private final Method toBuilder;
+        private final Method setAppkey;
+        private final Method build;
+        private final Method toByteArray;
+
+        private ProtoFawkesRewriter(
+                HookApi module, ClassLoader classLoader, String messageClassName)
+                throws Throwable {
+            this.module = module;
+            Class<?> messageClass = module.load(classLoader, messageClassName);
+            Class<?> builderClass = module.load(classLoader, messageClassName + "$b");
+            parseFrom = module.publicMethod(messageClass, "parseFrom", byte[].class);
+            getAppkey = module.publicMethod(messageClass, "getAppkey");
+            toBuilder = module.publicMethod(messageClass, "toBuilder");
+            setAppkey = module.publicMethod(builderClass, "setAppkey", String.class);
+            build = module.publicMethod(builderClass, "build");
+            toByteArray = module.publicMethod(messageClass, "toByteArray");
+        }
+
+        @Override
+        public ProtoRewriteResult rewrite(byte[] source) throws Throwable {
+            Object message = module.invoke(parseFrom, null, (Object) source);
+            String originalAppkey = String.valueOf(module.invoke(getAppkey, message));
+            Object builder = module.invoke(toBuilder, message);
+            module.invoke(setAppkey, builder, COMMENT_MOBI_APP);
+            Object rewrittenMessage = module.invoke(build, builder);
+            Object rewrittenBytes = module.invoke(toByteArray, rewrittenMessage);
+            if (!(rewrittenBytes instanceof byte[])) {
+                throw new IllegalStateException("toByteArray returned "
+                        + summarize(rewrittenBytes));
+            }
+            return new ProtoRewriteResult(
+                    (byte[]) rewrittenBytes,
+                    "appkey=" + originalAppkey,
+                    "appkey=" + COMMENT_MOBI_APP);
         }
     }
 
     private static final class ProtoRewriteResult {
         private final byte[] bytes;
-        private final String originalMobiApp;
-        private final String rewrittenMobiApp;
+        private final String originalIdentity;
+        private final String rewrittenIdentity;
 
         private ProtoRewriteResult(
-                byte[] bytes, String originalMobiApp, String rewrittenMobiApp) {
+                byte[] bytes, String originalIdentity, String rewrittenIdentity) {
             this.bytes = bytes;
-            this.originalMobiApp = originalMobiApp;
-            this.rewrittenMobiApp = rewrittenMobiApp;
+            this.originalIdentity = originalIdentity;
+            this.rewrittenIdentity = rewrittenIdentity;
         }
+    }
+
+    @FunctionalInterface
+    private interface ProtoRewriter {
+        ProtoRewriteResult rewrite(byte[] source) throws Throwable;
     }
 
     @FunctionalInterface
