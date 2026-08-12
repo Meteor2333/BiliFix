@@ -769,8 +769,11 @@ public final class ArticleHooks {
                         + " reason=" + reason
                         + " imagePreview=" + imageBridgeAttached
                         + " url=" + safeSchema(webView.getUrl()));
+                String canonicalArticleUrl = fullArticleUrl(
+                        cvid, normalizeDynamicId(dynamicId)).toString();
                 webView.evaluateJavascript(
-                        OpusRendererScript.source(imageBridgeAttached), result -> {
+                        OpusRendererScript.source(imageBridgeAttached, canonicalArticleUrl),
+                        result -> {
                     String summary = result == null ? "null" : result;
                     boolean rendered = summary.contains("rendered");
                     if (rendered) {

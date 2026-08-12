@@ -1,14 +1,20 @@
 package com.xjw.bilifix.in.feature.article;
 
+import static com.xjw.bilifix.in.core.ModuleConstants.PROJECT_NEW_ISSUE_URL;
+
+import org.json.JSONObject;
+
 public final class OpusRendererScript {
     private OpusRendererScript() {
     }
 
-    public static String source(boolean imagePreviewEnabled) {
+    public static String source(boolean imagePreviewEnabled, String articleUrl) {
         return """
                 (() => {
                   try {
                     const imagePreviewEnabled = __BILIFIX_IMAGE_PREVIEW_ENABLED__;
+                    const articleUrl = __BILIFIX_ARTICLE_URL__;
+                    const issueUrl = __BILIFIX_ISSUE_URL__;
                     const state = window.__INITIAL_STATE__;
                     const info = state && state.readInfo;
                     const opus = info && info.opus;
@@ -48,6 +54,13 @@ public final class OpusRendererScript {
                         .bilifix-opus-link{color:#00aeec;text-decoration:none}
                         .bilifix-opus-emoji{width:20px;height:20px;vertical-align:text-bottom}
                         .bilifix-opus-divider{border:0;border-top:1px solid rgba(128,128,128,.28);margin:18px 0}
+                        .bilifix-opus-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:28px 0 0;color:#9499a0;font-size:12px;line-height:1.6}
+                        .bilifix-opus-meta-left{display:flex;align-items:center;gap:14px;min-width:0;white-space:nowrap}
+                        .bilifix-opus-meta-right{min-width:0;text-align:right}
+                        .night-mode .bilifix-opus-meta{color:#8b8f96}
+                        .bilifix-opus-footer{margin:20px 0 0;color:#9499a0;font-size:12px;line-height:1.6;text-align:right}
+                        .night-mode .bilifix-opus-footer{color:#8b8f96}
+                        .bilifix-opus-feedback{color:inherit;text-decoration:underline;text-underline-offset:2px;-webkit-tap-highlight-color:transparent}
                       `;
                       document.head.appendChild(style);
                     }
@@ -240,6 +253,60 @@ public final class OpusRendererScript {
                       ? opus.article.cover[0] : null;
                     if (cover && cover.url) appendPictures(reader, [cover]);
                     paragraphs.forEach(paragraph => appendParagraph(reader, paragraph));
+                    const formatViewCount = value => {
+                      const count = Math.max(0, Number(value) || 0);
+                      if (count < 10000) return String(Math.floor(count));
+                      const wan = Math.floor(count / 1000) / 10;
+                      return `${wan.toFixed(wan % 1 === 0 ? 0 : 1)}万`;
+                    };
+                    const articleId = Math.max(0, Number(info.id) || 0);
+                    const viewCount = info.stats && Number(info.stats.view);
+                    if (articleId > 0 || Number.isFinite(viewCount)) {
+                      const meta = make('div', 'bilifix-opus-meta');
+                      const metaLeft = make('span', 'bilifix-opus-meta-left');
+                      if (Number.isFinite(viewCount)) {
+                        const views = make('span');
+                        views.textContent = `${formatViewCount(viewCount)}浏览`;
+                        metaLeft.appendChild(views);
+                      }
+                      if (articleId > 0) {
+                        const cvid = make('span');
+                        cvid.textContent = `cv${articleId}`;
+                        metaLeft.appendChild(cvid);
+                      }
+                      meta.appendChild(metaLeft);
+                      let authority = '';
+                      if (Number(info.reprint) === 0 && Number(info.type) !== 2) {
+                        authority = '本文禁止转载或摘编';
+                      } else if (Number(info.original) === 1 && Number(info.type) !== 2) {
+                        authority = '本文为我原创';
+                      }
+                      if (authority) {
+                        const metaRight = make('span', 'bilifix-opus-meta-right');
+                        metaRight.textContent = authority;
+                        meta.appendChild(metaRight);
+                      }
+                      reader.appendChild(meta);
+                    }
+                    const footer = make('footer', 'bilifix-opus-footer');
+                    footer.appendChild(document.createTextNode('本专栏由BiliFix修复与渲染'));
+                    footer.appendChild(make('br'));
+                    footer.appendChild(document.createTextNode('排版出错？'));
+                    const feedback = make('a', 'bilifix-opus-feedback');
+                    feedback.textContent = '点击复制链接并反馈';
+                    feedback.href = issueUrl;
+                    feedback.addEventListener('click', event => {
+                      const bridge = window.BiliFixBridge;
+                      if (!bridge || typeof bridge.reportArticleIssue !== 'function') return;
+                      event.preventDefault();
+                      try {
+                        bridge.reportArticleIssue(articleUrl);
+                      } catch (error) {
+                        console.error('[BiliFix] article feedback failed', error);
+                      }
+                    });
+                    footer.appendChild(feedback);
+                    reader.appendChild(footer);
                     while (root.firstChild) root.removeChild(root.firstChild);
                     root.appendChild(reader);
                     root.dataset.bilifixRendered = '1';
@@ -255,8 +322,10 @@ public final class OpusRendererScript {
                     return `bilifix:error:${error && error.message || error}`;
                   }
                 })()
-                """.replace(
-                "__BILIFIX_IMAGE_PREVIEW_ENABLED__",
-                imagePreviewEnabled ? "true" : "false");
+                """
+                .replace("__BILIFIX_IMAGE_PREVIEW_ENABLED__",
+                        imagePreviewEnabled ? "true" : "false")
+                .replace("__BILIFIX_ARTICLE_URL__", JSONObject.quote(articleUrl))
+                .replace("__BILIFIX_ISSUE_URL__", JSONObject.quote(PROJECT_NEW_ISSUE_URL));
     }
 }

@@ -1,12 +1,18 @@
 package com.xjw.bilifix.in.feature.article;
 
+import static com.xjw.bilifix.in.core.ModuleConstants.PROJECT_NEW_ISSUE_URL;
+
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+import android.widget.Toast;
 
 import com.xjw.bilifix.in.core.HookApi;
 
@@ -28,6 +34,7 @@ final class ArticleImagePreview {
     private static final String IMAGE_BRIDGE_NAME = "BiliFixBridge";
     private static final int MAX_IMAGE_BRIDGE_JSON_LENGTH = 256 * 1024;
     private static final int MAX_IMAGE_PREVIEW_COUNT = 128;
+    private static final int MAX_ARTICLE_URL_LENGTH = 512;
 
     private final HookApi module;
     private final PageAccess pageAccess;
@@ -104,9 +111,11 @@ final class ArticleImagePreview {
         long urlCvid = parseArticleCvidFromLoadUrl(loadUrl);
         long activeCvid = pageAccess.getCvid(activity);
         long expectedCvid = urlCvid > 0L ? urlCvid : activeCvid;
-        boolean enabled = isArticleFixEnabled() && isImagePreviewEnabled();
+        boolean articleEnabled = isArticleFixEnabled();
         boolean nativeReady = isNativeImageViewerReady();
-        if (!enabled || !nativeReady) {
+        boolean imagePreviewEnabled = articleEnabled
+                && isImagePreviewEnabled() && nativeReady;
+        if (!articleEnabled) {
             try {
                 webView.removeJavascriptInterface(IMAGE_BRIDGE_NAME);
             } catch (Throwable throwable) {
@@ -115,8 +124,8 @@ final class ArticleImagePreview {
             preparedBridges.remove(webView);
             info("pre-load image bridge disabled: source=" + source
                     + " cvid=" + expectedCvid
-                    + " articleFix=" + isArticleFixEnabled()
-                    + " imagePreview=" + isImagePreviewEnabled()
+                    + " articleFix=false"
+                    + " imagePreview=false"
                     + " nativeReady=" + nativeReady);
             return false;
         }
@@ -131,6 +140,7 @@ final class ArticleImagePreview {
                     + " activeCvid=" + activeCvid
                     + " mainThread=" + (Looper.myLooper() == Looper.getMainLooper())
                     + " name=" + IMAGE_BRIDGE_NAME
+                    + " imagePreview=" + imagePreviewEnabled
                     + " target=" + safeSchema(loadUrl));
             return true;
         } catch (Throwable throwable) {
@@ -295,6 +305,96 @@ final class ArticleImagePreview {
         }
     }
 
+    private void handleArticleIssueReport(
+            Activity activity,
+            WebView webView,
+            long expectedCvid,
+            String requestedArticleUrl) {
+        Handler handler = mainHandler;
+        if (handler == null) {
+            handler = new Handler(Looper.getMainLooper());
+            mainHandler = handler;
+        }
+        handler.post(() -> copyLinkAndOpenIssue(
+                activity, webView, expectedCvid, requestedArticleUrl));
+    }
+
+    private void copyLinkAndOpenIssue(
+            Activity activity,
+            WebView webView,
+            long expectedCvid,
+            String requestedArticleUrl) {
+        try {
+            if (!isArticleFixEnabled() || activity == null || webView == null
+                    || activity.isFinishing() || activity.isDestroyed()) {
+                warn("article feedback rejected: cvid=" + expectedCvid
+                        + " articleFix=" + isArticleFixEnabled());
+                return;
+            }
+            long activeCvid = pageAccess.getCvid(activity);
+            String pageUrl = webView.getUrl();
+            String articleUrl = normalizeArticleUrl(requestedArticleUrl);
+            boolean staleCvid = activeCvid <= 0L
+                    || (expectedCvid > 0L && activeCvid != expectedCvid);
+            if (staleCvid || !pageAccess.isTrustedArticleUrl(pageUrl)
+                    || articleUrl == null) {
+                warn("article feedback rejected for stale or untrusted page: expectedCvid="
+                        + expectedCvid + " activeCvid=" + activeCvid
+                        + " page=" + safeSchema(pageUrl)
+                        + " report=" + safeSchema(requestedArticleUrl));
+                return;
+            }
+
+            ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(
+                    Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) {
+                warn("article feedback could not access clipboard: cvid=" + activeCvid);
+                Toast.makeText(activity, "无法复制专栏链接", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            clipboard.setPrimaryClip(ClipData.newPlainText("BiliFix专栏链接", articleUrl));
+
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_NEW_ISSUE_URL))
+                    .addCategory(Intent.CATEGORY_BROWSABLE);
+            try {
+                activity.startActivity(intent);
+                Toast.makeText(activity, "专栏链接已复制", Toast.LENGTH_SHORT).show();
+                info("article feedback opened: cvid=" + activeCvid
+                        + " article=" + safeSchema(articleUrl));
+            } catch (Throwable throwable) {
+                Toast.makeText(activity, "链接已复制，请前往GitHub反馈",
+                        Toast.LENGTH_SHORT).show();
+                error("article feedback page launch failed: cvid=" + activeCvid,
+                        throwable);
+            }
+        } catch (Throwable throwable) {
+            error("article feedback failed: cvid=" + expectedCvid, throwable);
+        }
+    }
+
+    private static String normalizeArticleUrl(String value) {
+        if (value == null || value.isEmpty() || value.length() > MAX_ARTICLE_URL_LENGTH) {
+            return null;
+        }
+        try {
+            Uri uri = Uri.parse(value);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            String path = uri.getPath();
+            boolean web = "http".equalsIgnoreCase(scheme)
+                    || "https".equalsIgnoreCase(scheme);
+            boolean bilibili = "www.bilibili.com".equalsIgnoreCase(host)
+                    || "m.bilibili.com".equalsIgnoreCase(host);
+            if (!web || !bilibili || path == null
+                    || !(path.startsWith("/read/cv") || path.startsWith("/opus/"))) {
+                return null;
+            }
+            return uri.buildUpon().scheme("https").build().toString();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     private static int clampImageDimension(int value) {
         return Math.max(0, Math.min(value, 100_000));
     }
@@ -429,6 +529,16 @@ final class ArticleImagePreview {
             }
             preview.handleImagePreviewRequest(
                     activityReference.get(), webViewReference.get(), cvid, imagesJson, index);
+        }
+
+        @JavascriptInterface
+        public void reportArticleIssue(String articleUrl) {
+            ArticleImagePreview preview = previewReference.get();
+            if (preview == null) {
+                return;
+            }
+            preview.handleArticleIssueReport(
+                    activityReference.get(), webViewReference.get(), cvid, articleUrl);
         }
     }
 
