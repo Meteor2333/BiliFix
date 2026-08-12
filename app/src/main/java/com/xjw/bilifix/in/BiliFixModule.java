@@ -24,6 +24,7 @@ import com.xjw.bilifix.in.feature.compat.CompatFeatureHooks;
 import com.xjw.bilifix.in.feature.location.IpLocationHooks;
 import com.xjw.bilifix.in.feature.share.SystemShareHooks;
 import com.xjw.bilifix.in.feature.settings.SettingsManager;
+import com.xjw.bilifix.in.feature.subtitle.AiSubtitleHooks;
 
 public final class BiliFixModule extends XposedModule implements HookApi {
     private static final String TAG = "BiliFix.In";
@@ -72,6 +73,7 @@ public final class BiliFixModule extends XposedModule implements HookApi {
         new CompatFeatureHooks(this, classLoader).install();
         new IpLocationHooks(this, classLoader).install();
         if (mainProcess) {
+            new AiSubtitleHooks(this, classLoader).install();
             settingsManager.installUiHooks(classLoader);
             SystemShareHooks shareHooks = new SystemShareHooks(this, classLoader);
             systemShareHooks = shareHooks;
@@ -205,6 +207,11 @@ public final class BiliFixModule extends XposedModule implements HookApi {
     @Override
     public boolean isIpLocationEnabled() {
         return settingsManager.isIpLocationEnabled();
+    }
+
+    @Override
+    public boolean isAiSubtitleEnabled() {
+        return settingsManager.isAiSubtitleEnabled();
     }
 
     @Override

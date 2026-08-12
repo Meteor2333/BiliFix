@@ -5,6 +5,7 @@ import static com.xjw.bilifix.in.core.ModuleConstants.TARGET_PACKAGE;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.ADVANCED_SETTINGS_FRAGMENT;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.ARG_BILIFIX_SETTINGS_PAGE;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_ABOUT;
+import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_AI_SUBTITLE_ENABLED;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_ARTICLE_FIX_ENABLED;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_IP_LOCATION_ENABLED;
 import static com.xjw.bilifix.in.feature.settings.SettingsManager.KEY_REGION_FIX_ENABLED;
@@ -246,6 +247,15 @@ final class SettingsUiHooks {
                                 addPreference, setKey, setTitle, setSummary,
                                 setPersistent, setOrder,
                                 setOnPreferenceChangeListener, setChecked);
+                        addSwitch(enhanceCategory, switchConstructor,
+                                KEY_AI_SUBTITLE_ENABLED,
+                                "字幕增强",
+                                "获取由b站AI生成的视频字幕资源",
+                                settings.isAiSubtitleEnabled(), 2,
+                                changeListenerClass, context,
+                                addPreference, setKey, setTitle, setSummary,
+                                setPersistent, setOrder,
+                                setOnPreferenceChangeListener, setChecked);
 
                         Object aboutCategory = createCategory(
                                 context, categoryConstructor, categoryTitleLayout,
@@ -269,6 +279,7 @@ final class SettingsUiHooks {
                                 + " relationFix=" + settings.isRelationFixEnabled()
                                 + " walletFix=" + settings.isWalletFixEnabled()
                                 + " ipLocation=" + settings.isIpLocationEnabled()
+                                + " aiSubtitle=" + settings.isAiSubtitleEnabled()
                                 + " systemShare=" + settings.isSystemShareEnabled());
                         return null;
                     } catch (Throwable throwable) {

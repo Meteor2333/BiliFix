@@ -28,6 +28,8 @@ public interface HookApi {
 
     boolean isIpLocationEnabled();
 
+    boolean isAiSubtitleEnabled();
+
     boolean isSystemShareEnabled();
 
     boolean deoptimizeFeatureMethod(Method method);
