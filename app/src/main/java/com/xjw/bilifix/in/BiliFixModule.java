@@ -26,6 +26,7 @@ import com.xjw.bilifix.in.feature.location.IpLocationHooks;
 import com.xjw.bilifix.in.feature.share.SystemShareHooks;
 import com.xjw.bilifix.in.feature.settings.SettingsManager;
 import com.xjw.bilifix.in.feature.subtitle.AiSubtitleHooks;
+import com.xjw.bilifix.in.feature.webview.WebViewThemeHooks;
 
 public final class BiliFixModule extends XposedModule implements HookApi {
     private static final String TAG = "BiliFix.In";
@@ -71,6 +72,7 @@ public final class BiliFixModule extends XposedModule implements HookApi {
                 + " classLoader=" + classLoader);
 
         installApplicationSettingsHook(classLoader);
+        new WebViewThemeHooks(this, classLoader).install();
         new CompatFeatureHooks(this, classLoader).install();
         if (mainProcess) {
             new CommentTranslationHooks(this, classLoader).install();
