@@ -20,6 +20,7 @@ import io.github.libxposed.api.XposedModule;
 
 import com.xjw.bilifix.in.core.HookApi;
 import com.xjw.bilifix.in.feature.article.ArticleHooks;
+import com.xjw.bilifix.in.feature.commenttranslation.CommentTranslationHooks;
 import com.xjw.bilifix.in.feature.compat.CompatFeatureHooks;
 import com.xjw.bilifix.in.feature.location.IpLocationHooks;
 import com.xjw.bilifix.in.feature.share.SystemShareHooks;
@@ -71,14 +72,16 @@ public final class BiliFixModule extends XposedModule implements HookApi {
 
         installApplicationSettingsHook(classLoader);
         new CompatFeatureHooks(this, classLoader).install();
-        new IpLocationHooks(this, classLoader).install();
         if (mainProcess) {
+            new CommentTranslationHooks(this, classLoader).install();
             new AiSubtitleHooks(this, classLoader).install();
+            new IpLocationHooks(this, classLoader).install();
             settingsManager.installUiHooks(classLoader);
             SystemShareHooks shareHooks = new SystemShareHooks(this, classLoader);
             systemShareHooks = shareHooks;
             shareHooks.install();
         } else {
+            new IpLocationHooks(this, classLoader).install();
             new ArticleHooks(this, classLoader).install();
         }
 
@@ -212,6 +215,11 @@ public final class BiliFixModule extends XposedModule implements HookApi {
     @Override
     public boolean isAiSubtitleEnabled() {
         return settingsManager.isAiSubtitleEnabled();
+    }
+
+    @Override
+    public boolean isAiCommentTranslationEnabled() {
+        return settingsManager.isAiCommentTranslationEnabled();
     }
 
     @Override

@@ -30,6 +30,8 @@ public interface HookApi {
 
     boolean isAiSubtitleEnabled();
 
+    boolean isAiCommentTranslationEnabled();
+
     boolean isSystemShareEnabled();
 
     boolean deoptimizeFeatureMethod(Method method);

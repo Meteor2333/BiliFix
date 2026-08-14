@@ -35,6 +35,8 @@ public final class SettingsManager {
             "bilifix_ip_location_enabled";
     static final String KEY_AI_SUBTITLE_ENABLED =
             "bilifix_ai_subtitle_enabled";
+    static final String KEY_AI_COMMENT_TRANSLATION_ENABLED =
+            "bilifix_ai_comment_translation_enabled";
     static final String KEY_SYSTEM_SHARE_ENABLED =
             "bilifix_system_share_enabled";
     static final String KEY_SETTINGS_ENTRY = "bilifix_settings_entry";
@@ -57,6 +59,7 @@ public final class SettingsManager {
     private volatile boolean walletFixEnabled = DEFAULT_FEATURE_ENABLED;
     private volatile boolean ipLocationEnabled = DEFAULT_FEATURE_ENABLED;
     private volatile boolean aiSubtitleEnabled = DEFAULT_FEATURE_ENABLED;
+    private volatile boolean aiCommentTranslationEnabled = DEFAULT_FEATURE_ENABLED;
     private volatile boolean systemShareEnabled = DEFAULT_FEATURE_ENABLED;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -72,6 +75,9 @@ public final class SettingsManager {
                     intent.getBooleanExtra(KEY_WALLET_FIX_ENABLED, walletFixEnabled),
                     intent.getBooleanExtra(KEY_IP_LOCATION_ENABLED, ipLocationEnabled),
                     intent.getBooleanExtra(KEY_AI_SUBTITLE_ENABLED, aiSubtitleEnabled),
+                    intent.getBooleanExtra(
+                            KEY_AI_COMMENT_TRANSLATION_ENABLED,
+                            aiCommentTranslationEnabled),
                     intent.getBooleanExtra(KEY_SYSTEM_SHARE_ENABLED, systemShareEnabled),
                     "broadcast");
         }
@@ -107,11 +113,13 @@ public final class SettingsManager {
                     KEY_IP_LOCATION_ENABLED, DEFAULT_FEATURE_ENABLED);
             boolean aiSubtitleEnabled = preferences.getBoolean(
                     KEY_AI_SUBTITLE_ENABLED, DEFAULT_FEATURE_ENABLED);
+            boolean aiCommentTranslationEnabled = preferences.getBoolean(
+                    KEY_AI_COMMENT_TRANSLATION_ENABLED, DEFAULT_FEATURE_ENABLED);
             boolean shareEnabled = preferences.getBoolean(
                     KEY_SYSTEM_SHARE_ENABLED, DEFAULT_FEATURE_ENABLED);
             apply(articleEnabled, regionEnabled, relationEnabled,
                     walletEnabled, ipLocationEnabled, aiSubtitleEnabled,
-                    shareEnabled, "settings-page");
+                    aiCommentTranslationEnabled, shareEnabled, "settings-page");
 
             Intent update = new Intent(SETTINGS_CHANGED_ACTION)
                     .setPackage(TARGET_PACKAGE)
@@ -122,6 +130,9 @@ public final class SettingsManager {
                     .putExtra(KEY_WALLET_FIX_ENABLED, walletEnabled)
                     .putExtra(KEY_IP_LOCATION_ENABLED, ipLocationEnabled)
                     .putExtra(KEY_AI_SUBTITLE_ENABLED, aiSubtitleEnabled)
+                    .putExtra(
+                            KEY_AI_COMMENT_TRANSLATION_ENABLED,
+                            aiCommentTranslationEnabled)
                     .putExtra(KEY_SYSTEM_SHARE_ENABLED, shareEnabled);
             context.sendBroadcast(update);
             module.info("setting persisted: key=" + key + " value=" + value
@@ -165,6 +176,9 @@ public final class SettingsManager {
                     preferences.getBoolean(
                             KEY_AI_SUBTITLE_ENABLED, DEFAULT_FEATURE_ENABLED),
                     preferences.getBoolean(
+                            KEY_AI_COMMENT_TRANSLATION_ENABLED,
+                            DEFAULT_FEATURE_ENABLED),
+                    preferences.getBoolean(
                             KEY_SYSTEM_SHARE_ENABLED, DEFAULT_FEATURE_ENABLED),
                     "shared-preferences");
         }
@@ -191,6 +205,7 @@ public final class SettingsManager {
             boolean walletEnabled,
             boolean ipLocationEnabled,
             boolean aiSubtitleEnabled,
+            boolean aiCommentTranslationEnabled,
             boolean shareEnabled,
             String source) {
         boolean changed = !loaded
@@ -200,6 +215,7 @@ public final class SettingsManager {
                 || walletFixEnabled != walletEnabled
                 || this.ipLocationEnabled != ipLocationEnabled
                 || this.aiSubtitleEnabled != aiSubtitleEnabled
+                || this.aiCommentTranslationEnabled != aiCommentTranslationEnabled
                 || systemShareEnabled != shareEnabled;
         articleFixEnabled = articleEnabled;
         regionFixEnabled = regionEnabled;
@@ -207,6 +223,7 @@ public final class SettingsManager {
         walletFixEnabled = walletEnabled;
         this.ipLocationEnabled = ipLocationEnabled;
         this.aiSubtitleEnabled = aiSubtitleEnabled;
+        this.aiCommentTranslationEnabled = aiCommentTranslationEnabled;
         systemShareEnabled = shareEnabled;
         loaded = true;
         String message = "settings " + (changed ? "applied" : "unchanged")
@@ -218,6 +235,7 @@ public final class SettingsManager {
                 + " walletFix=" + walletEnabled
                 + " ipLocation=" + ipLocationEnabled
                 + " aiSubtitle=" + aiSubtitleEnabled
+                + " aiCommentTranslation=" + aiCommentTranslationEnabled
                 + " systemShare=" + shareEnabled;
         if (changed) {
             module.info(message);
@@ -276,6 +294,10 @@ public final class SettingsManager {
 
     public boolean isAiSubtitleEnabled() {
         return aiSubtitleEnabled;
+    }
+
+    public boolean isAiCommentTranslationEnabled() {
+        return aiCommentTranslationEnabled;
     }
 
     public boolean isSystemShareEnabled() {

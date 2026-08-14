@@ -57,8 +57,8 @@ android {
         applicationId = "com.xjw.bilifix.in"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.7.1"
+        versionCode = 21
+        versionName = "0.8.0"
     }
 
     signingConfigs {
