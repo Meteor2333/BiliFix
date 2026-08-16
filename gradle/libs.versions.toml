@@ -1,6 +1,5 @@
 [versions]
 agp = "9.3.1"
-appcompat = "1.8.0"
 coreKtx = "1.19.0"
 xposedkit = "1.0.0"
 
@@ -10,4 +9,3 @@ xposedkit = { id = "cc.meteormc.xposedkit.plugin", version.ref = "xposedkit" }
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
