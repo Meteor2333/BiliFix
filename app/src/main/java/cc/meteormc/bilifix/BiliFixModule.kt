@@ -1,6 +1,7 @@
 package cc.meteormc.bilifix
 
 import android.util.Log
+import cc.meteormc.bilifix.feature.CommentTranslationBackport
 import cc.meteormc.xposedkit.XLog
 import cc.meteormc.xposedkit.XposedKit
 import cc.meteormc.xposedkit.XposedModule
@@ -45,6 +46,7 @@ object BiliFixModule : XposedModule {
                 ),
                 param.classLoader
             )
+            CommentTranslationBackport.installHook(context)
         }
     }
 
