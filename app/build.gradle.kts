@@ -39,5 +39,6 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.metadata)
     implementation(libs.protobuf)
 }
