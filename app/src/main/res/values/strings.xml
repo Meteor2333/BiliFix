@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name" translatable="false">BiliFix Remake</string>
+    <string name="preferences_entry">BiliFix Settings</string>
 </resources>

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="preferences_icon_color">#FFFF7199</color>
     <color name="translate_button_color">#FF61666D</color>
 </resources>
