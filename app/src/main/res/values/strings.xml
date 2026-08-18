@@ -1,3 +1,3 @@
 <resources>
-    <string name="app_name">BiliFix Remake</string>
+    <string name="app_name" translatable="false">BiliFix Remake</string>
 </resources>
