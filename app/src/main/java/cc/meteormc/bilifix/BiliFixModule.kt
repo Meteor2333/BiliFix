@@ -1,5 +1,6 @@
 package cc.meteormc.bilifix
 
+import android.content.ComponentName
 import android.util.Log
 import cc.meteormc.bilifix.feature.CommentTranslationBackport
 import cc.meteormc.xposedkit.XLog
@@ -32,18 +33,17 @@ object BiliFixModule : XposedModule {
 
         XLog.i("BiliFixModule", "Loading module for package: ${param.packageName}")
         XposedKit.registerAppAttachListener(param.packageName) {
-            val resources = it.resources
             val context = BiliFixContext(
                 it,
                 @OptIn(ExperimentalStdlibApi::class)
-                ModuleContextWrapper(
-                    it,
-                    XposedKit.createModuleResources(
-                        resources.displayMetrics,
-                        resources.configuration,
-                        resources.assets
+                ModuleContextWrapper(it).apply {
+                    setProxyActivity(
+                        ComponentName(
+                            param.packageName,
+                            "com.bilibili.app.preferences.BiliPreferencesActivity"
+                        )
                     )
-                ),
+                },
                 param.classLoader
             )
             CommentTranslationBackport.installHook(context)
