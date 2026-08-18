@@ -348,7 +348,7 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                     classLoader,
                     arrayOf(clazz)
                 ) { proxy, method, args ->
-                    val arg = args.getOrNull(0)
+                    val arg = args.firstOrNull()
                     when (method.name) {
                         "equals" -> proxy == arg
                         "hashCode" -> System.identityHashCode(proxy)
