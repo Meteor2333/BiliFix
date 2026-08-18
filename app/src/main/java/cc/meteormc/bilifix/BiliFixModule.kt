@@ -2,6 +2,7 @@ package cc.meteormc.bilifix
 
 import android.content.ComponentName
 import android.util.Log
+import cc.meteormc.bilifix.feature.CNVersionToggle
 import cc.meteormc.bilifix.feature.CommentTranslationBackport
 import cc.meteormc.bilifix.feature.PreferencesEntryInject
 import cc.meteormc.bilifix.feature.RemoveVipBanner
@@ -48,6 +49,7 @@ object BiliFixModule : XposedModule {
                 },
                 param.classLoader
             )
+            CNVersionToggle.installHook(context)
             CommentTranslationBackport.installHook(context)
             PreferencesEntryInject.installHook(context)
             RemoveVipBanner.installHook(context)
