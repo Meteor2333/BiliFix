@@ -27,7 +27,7 @@ object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
         val itemListField = groupReflect.field("itemList") ?: return
 
         val item = $$"com.bilibili.lib.homepage.mine.MenuGroup$Item".reflect {
-            constructor()?.new()?.apply {
+            constructor()?.new<Any>()?.apply {
                 field("id")?.set(this, 1 shl 20)
                 field("title")?.set(this, moduleContext.getString(R.string.preferences_entry))
                 field("uri")?.set(this, ITEM_URI)
