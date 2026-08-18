@@ -32,7 +32,7 @@ object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
                 field("title")?.set(this, moduleContext.getString(R.string.preferences_entry))
                 field("uri")?.set(this, ITEM_URI)
                 field("icon")?.set(this, ICON_HOST_URL)
-                field("iconResId")?.set(this, R.drawable.ic_preferences_24dp)
+//                field("iconResId")?.set(this, R.drawable.ic_preferences_24dp)
                 field("visible")?.set(this, 1)
             }
         } ?: return
