@@ -203,6 +203,7 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                 val replyButton = actionBar.findViewById<ImageView>(replyButtonId) ?: return@hookAfter
                 val translationButton = ImageButton(moduleContext).apply {
                     tag = "translation_button"
+                    background = null
                     visibility = View.GONE
                     minimumWidth = replyButton.minimumWidth
                     minimumHeight = replyButton.minimumHeight
