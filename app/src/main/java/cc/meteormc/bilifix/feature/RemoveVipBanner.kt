@@ -14,11 +14,11 @@ object RemoveVipBanner : BaseHooker<BiliFixContext>() {
                 Int::class.javaPrimitiveType!!
             )?.hookBefore {
                 it.callSuper<Unit>()
-                it.doNothing()
+                it.cancel()
             }
 
             declaredMethods.hookBefore {
-                it.doNothing()
+                it.cancel()
             }
         }
     }

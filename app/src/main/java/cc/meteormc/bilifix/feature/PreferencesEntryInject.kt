@@ -52,7 +52,7 @@ object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
                 null
             )?.apply {
                 hookBefore(InvokeCallback.PRIORITY_LOWEST) {
-                    val group = it.argByGenerics<List<Any>>().lastOrNull() ?: return@hookBefore
+                    val group = it.findArg<List<Any>>().lastOrNull() ?: return@hookBefore
                     if (!groupClass.isInstance(group)) return@hookBefore
                     itemListField.get<MutableList<Any>>(group).add(item)
                 }

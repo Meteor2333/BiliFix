@@ -154,7 +154,7 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                     XLog.w(tag, "Failed to convert comment item", e)
                     null
                 } ?: return@hookAfter
-                val replyInfo = it.argByClass(replyInfoClass)
+                val replyInfo = it.findArg(replyInfoClass) ?: return@hookAfter
                 val replyControl = replyControlMethod.call<Any>(replyInfo)
 
                 val unknownFields = replyControlUnknownField.get<Any>(replyControl)
@@ -251,7 +251,7 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                 if (itemView !is ViewGroup) return@hookAfter
 
                 val translationButton = itemView.findViewWithTag<ImageButton>("translation_button") ?: return@hookAfter
-                val commentItem = it.argByClass(commentItemClass).toModel(this@hook) ?: return@hookAfter
+                val commentItem = it.findArg(commentItemClass)?.toModel(this@hook) ?: return@hookAfter
                 val translationState = when (commentItem.translationSwitch) {
                     TranslationSwitch.SHOW_TRANSLATION -> {
                         TranslationState.ORIGIN
