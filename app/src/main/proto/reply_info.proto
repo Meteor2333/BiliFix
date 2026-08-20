@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package cc.meteormc.bilifix.proto;
+
+option java_multiple_files = true;
+
+message ReplyInfo {
+  bytes reply_control = 14;
+  bytes translated_content = 17;
+}

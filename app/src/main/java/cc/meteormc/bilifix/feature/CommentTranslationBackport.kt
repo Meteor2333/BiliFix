@@ -10,6 +10,8 @@ import android.widget.TextView
 import androidx.core.animation.doOnEnd
 import cc.meteormc.bilifix.BiliFixContext
 import cc.meteormc.bilifix.BiliFixModule
+import cc.meteormc.bilifix.proto.TranslateReplyRequest
+import cc.meteormc.bilifix.proto.TranslateReplyResponse
 import cc.meteormc.bilifix.R
 import cc.meteormc.xposedkit.XLog
 import cc.meteormc.xposedkit.call
@@ -20,10 +22,6 @@ import cc.meteormc.xposedkit.hook.HookerContext
 import cc.meteormc.xposedkit.new
 import cc.meteormc.xposedkit.reflect
 import cc.meteormc.xposedkit.util.WeakDelegate
-import com.google.protobuf.ByteString
-import com.google.protobuf.DescriptorProtos
-import com.google.protobuf.Descriptors
-import com.google.protobuf.DynamicMessage
 import com.google.protobuf.MessageLite
 import com.google.protobuf.WireFormat
 import kotlinx.coroutines.Dispatchers
@@ -41,92 +39,6 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
 
     private lateinit var translateReplyMethod: Any
     private var mossService by WeakDelegate<Any>()
-    private val descriptor = Descriptors.FileDescriptor.buildFrom(
-        DescriptorProtos.FileDescriptorProto.newBuilder()
-            .setName("translate_reply.proto")
-            .setPackage("com.bapis.bilibili.main.community.reply.v1")
-            .setSyntax("proto3")
-            .addMessageType(
-                DescriptorProtos.DescriptorProto.newBuilder()
-                    .setName("ReplyInfo")
-                    .addField(
-                        DescriptorProtos.FieldDescriptorProto.newBuilder()
-                            .setName("reply_control")
-                            .setNumber(14)
-                            .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_OPTIONAL)
-                            .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_BYTES)
-                    )
-                    .addField(
-                        DescriptorProtos.FieldDescriptorProto.newBuilder()
-                            .setName("translated_content")
-                            .setNumber(17)
-                            .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_OPTIONAL)
-                            .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_BYTES)
-                    )
-            )
-            .addMessageType(
-                DescriptorProtos.DescriptorProto.newBuilder()
-                    .setName("TranslateReplyReq")
-                    .addField(
-                        DescriptorProtos.FieldDescriptorProto.newBuilder()
-                            .setName("type")
-                            .setNumber(1)
-                            .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_INT64)
-                    )
-                    .addField(
-                        DescriptorProtos.FieldDescriptorProto.newBuilder()
-                            .setName("oid")
-                            .setNumber(2)
-                            .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_INT64)
-                    )
-                    .addField(
-                        DescriptorProtos.FieldDescriptorProto.newBuilder()
-                            .setName("rpids")
-                            .setNumber(3)
-                            .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_INT64)
-                            .setLabel(
-                                DescriptorProtos.FieldDescriptorProto.Label.LABEL_REPEATED
-                            )
-                    )
-            )
-            .addMessageType(
-                DescriptorProtos.DescriptorProto.newBuilder()
-                    .setName("TranslateReplyResp")
-                    .addField(
-                        DescriptorProtos.FieldDescriptorProto.newBuilder()
-                            .setName("translated_replies")
-                            .setNumber(1)
-                            .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_REPEATED)
-                            .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_MESSAGE)
-                            .setTypeName(".com.bapis.bilibili.main.community.reply.v1.TranslateReplyResp.TranslatedRepliesEntry")
-                    )
-                    .addNestedType(
-                        DescriptorProtos.DescriptorProto.newBuilder()
-                            .setName("TranslatedRepliesEntry")
-                            .setOptions(
-                                DescriptorProtos.MessageOptions.newBuilder()
-                                    .setMapEntry(true)
-                            )
-                            .addField(
-                                DescriptorProtos.FieldDescriptorProto.newBuilder()
-                                    .setName("key")
-                                    .setNumber(1)
-                                    .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_OPTIONAL)
-                                    .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_INT64)
-                            )
-                            .addField(
-                                DescriptorProtos.FieldDescriptorProto.newBuilder()
-                                    .setName("value")
-                                    .setNumber(2)
-                                    .setLabel(DescriptorProtos.FieldDescriptorProto.Label.LABEL_OPTIONAL)
-                                    .setType(DescriptorProtos.FieldDescriptorProto.Type.TYPE_MESSAGE)
-                                    .setTypeName(".com.bapis.bilibili.main.community.reply.v1.ReplyInfo")
-                            )
-                    )
-            )
-            .build(),
-            emptyArray()
-        )
 
     private val comments = ConcurrentHashMap<Long, CommentItem>()
     private var heightAnimator: ValueAnimator? = null
@@ -389,18 +301,10 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                 } ?: return@reflect
             }
 
-            val replyInfoDescriptor = descriptor.findMessageTypeByName("ReplyInfo")
-            val requestDescriptor = descriptor.findMessageTypeByName("TranslateReplyReq")
-            val responseDescriptor = descriptor.findMessageTypeByName("TranslateReplyResp")
-
-            val controlField = replyInfoDescriptor.findFieldByName("reply_control")
-            val contentField = replyInfoDescriptor.findFieldByName("translated_content")
-            val repliesField = responseDescriptor.findFieldByName("translated_replies")
-
-            val request = DynamicMessage.newBuilder(requestDescriptor)
-                .setField(requestDescriptor.findFieldByNumber(1), item.type)
-                .setField(requestDescriptor.findFieldByNumber(2), item.oid)
-                .addRepeatedField(requestDescriptor.findFieldByNumber(3), item.id)
+            val request = TranslateReplyRequest.newBuilder()
+                .setType(item.type)
+                .setOid(item.oid)
+                .addRpids(item.id)
                 .build()
             val response = method("blockingUnaryCall")?.call<Any>(
                 serviceRef,
@@ -409,29 +313,14 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                 null
             )
 
-            val message = DynamicMessage.parseFrom(
-                responseDescriptor,
-                toBytes.call<ByteArray>(response)
-            )
-            val entries = message.getField(repliesField) as List<DynamicMessage>
-            val reply = entries.associate {
-                val entryDescriptor = it.descriptorForType
-                val key = it.getField(entryDescriptor.findFieldByName("key")) as Long
-                val value = it.getField(entryDescriptor.findFieldByName("value")) as DynamicMessage
-                key to value
-            }[item.id] ?: return@reflect
-            val control = reply.let {
-                val bytes = (it.getField(controlField) as ByteString).toByteArray()
-                "com.bapis.bilibili.main.community.reply.v1.ReplyControl".reflect {
-                    method("parseFrom", ByteArray::class.java)?.call<Any>(null, bytes)
-                }
-            } ?: return@reflect
-            val content = reply.let {
-                val bytes = (it.getField(contentField) as ByteString).toByteArray()
-                "com.bapis.bilibili.main.community.reply.v1.Content".reflect {
-                    method("parseFrom", ByteArray::class.java)?.call<Any>(null, bytes)
-                }
-            } ?: return@reflect
+            val message = TranslateReplyResponse.parseFrom(toBytes.call<ByteArray>(response))
+            val reply = message.translatedRepliesMap[item.id] ?: return@reflect
+            val control = "com.bapis.bilibili.main.community.reply.v1.ReplyControl".reflect {
+                method("parseFrom", ByteArray::class.java)?.call<Any>(null, reply.replyControl.toByteArray())
+            }
+            val content = "com.bapis.bilibili.main.community.reply.v1.Content".reflect {
+                method("parseFrom", ByteArray::class.java)?.call<Any>(null, reply.translatedContent.toByteArray())
+            }
             translated = "com.bilibili.app.comment3.data.source.v1.b".reflect {
                 method(
                     "com.bapis.bilibili.main.community.reply.v1.Content".clazz!!,

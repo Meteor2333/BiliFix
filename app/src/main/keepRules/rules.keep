@@ -5,3 +5,4 @@
 #   https://d.android.com/r/tools/r8/keep-rules
 
 -dontobfuscate
+-keep class cc.meteormc.bilifix.proto.** { *; }

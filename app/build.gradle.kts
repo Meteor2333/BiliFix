@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.protobuf)
     alias(libs.plugins.xposedkit)
 }
 
@@ -41,4 +42,20 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.metadata)
     implementation(libs.protobuf)
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
+    }
+
+    generateProtoTasks {
+        all().configureEach {
+            builtins {
+                register("java") {
+                    option("lite")
+                }
+            }
+        }
+    }
 }

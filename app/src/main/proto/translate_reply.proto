@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package cc.meteormc.bilifix.proto;
+
+import "reply_info.proto";
+
+option java_multiple_files = true;
+
+message TranslateReplyRequest {
+  int64 type = 1;
+  int64 oid = 2;
+  repeated int64 rpids = 3;
+}
+
+message TranslateReplyResponse {
+  map<int64, ReplyInfo> translated_replies = 1;
+}
