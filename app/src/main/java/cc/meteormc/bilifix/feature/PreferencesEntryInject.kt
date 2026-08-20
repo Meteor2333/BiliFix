@@ -90,10 +90,10 @@ object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
         override fun invoke(
             proxy: Any,
             method: Method,
-            args: Array<Any?>
+            args: Array<Any?>?
         ): Any? {
             when (method.name) {
-                "equals" -> return proxy == args.firstOrNull()
+                "equals" -> return proxy == args?.firstOrNull()
                 "hashCode" -> return System.identityHashCode(proxy)
                 "toString" -> return "BiliFixClickHandler"
             }
