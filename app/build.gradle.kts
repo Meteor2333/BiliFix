@@ -41,7 +41,8 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.metadata)
-    implementation(libs.protobuf)
+    implementation(libs.protobuf.java)
+    implementation(libs.protobuf.kotlin)
 }
 
 protobuf {
@@ -52,7 +53,10 @@ protobuf {
     generateProtoTasks {
         all().configureEach {
             builtins {
-                register("java") {
+                create("java") {
+                    option("lite")
+                }
+                create("kotlin") {
                     option("lite")
                 }
             }

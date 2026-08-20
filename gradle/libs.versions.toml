@@ -14,4 +14,5 @@ xposedkit = { id = "cc.meteormc.xposedkit.plugin", version.ref = "xposedkit" }
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 kotlinx-metadata = { module = "org.jetbrains.kotlinx:kotlinx-metadata-jvm", version.ref = "kotlinxMetadata" }
-protobuf = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
+protobuf-java = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
+protobuf-kotlin = { module = "com.google.protobuf:protobuf-kotlin-lite", version.ref = "protobuf" }
