@@ -4,7 +4,8 @@ package cc.meteormc.bilifix.proto;
 
 option java_multiple_files = true;
 
-message ReplyInfo {
-  bytes reply_control = 14;
-  bytes translated_content = 17;
+message Network {
+  int32 type = 1;
+  int32 tf = 2;
+  string oid = 3;
 }

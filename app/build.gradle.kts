@@ -41,6 +41,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.metadata)
+    implementation(libs.okhttp)
     implementation(libs.protobuf.java)
     implementation(libs.protobuf.kotlin)
 }

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package cc.meteormc.bilifix.proto;
+
+option java_multiple_files = true;
+
+message CommentDetailResponse {
+  ReplyInfo root = 3;
+}
+
+message CommentListResponse {
+  repeated ReplyInfo replies = 2;
+  ReplyInfo up_top = 4;
+  ReplyInfo admin_top = 5;
+  ReplyInfo vote_top = 6;
+  repeated ReplyInfo top_replies = 14;
+}
+
+message ReplyInfoResponse {
+  ReplyInfo reply = 1;
+}
+
+message ReplyInfo {
+  repeated ReplyInfo replies = 1;
+  ReplyControl reply_control = 14;
+  bytes translated_content = 17;
+}
+
+message ReplyControl {
+  string location = 25;
+}

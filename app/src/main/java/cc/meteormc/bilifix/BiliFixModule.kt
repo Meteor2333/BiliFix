@@ -2,10 +2,11 @@ package cc.meteormc.bilifix
 
 import android.content.ComponentName
 import android.util.Log
-import cc.meteormc.bilifix.feature.ProductVariantSpoof
 import cc.meteormc.bilifix.feature.CommentTranslationBackport
 import cc.meteormc.bilifix.feature.PreferencesEntryInject
+import cc.meteormc.bilifix.feature.ProductVariantSpoof
 import cc.meteormc.bilifix.feature.RemoveVipBanner
+import cc.meteormc.bilifix.feature.RestrictionUnlock
 import cc.meteormc.xposedkit.XLog
 import cc.meteormc.xposedkit.XposedKit
 import cc.meteormc.xposedkit.XposedModule
@@ -51,6 +52,7 @@ object BiliFixModule : XposedModule {
             )
             CommentTranslationBackport.installHook(context)
             PreferencesEntryInject.installHook(context)
+            RestrictionUnlock.installHook(context)
             ProductVariantSpoof.installHook(context)
             RemoveVipBanner.installHook(context)
         }
