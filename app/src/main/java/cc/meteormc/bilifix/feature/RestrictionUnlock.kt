@@ -7,6 +7,7 @@ import cc.meteormc.bilifix.BiliFixContext
 import cc.meteormc.bilifix.proto.CommentDetailResponse
 import cc.meteormc.bilifix.proto.CommentListResponse
 import cc.meteormc.bilifix.proto.Device
+import cc.meteormc.bilifix.proto.DmViewResponse
 import cc.meteormc.bilifix.proto.Metadata
 import cc.meteormc.bilifix.proto.Network
 import cc.meteormc.bilifix.proto.ReplyInfo
@@ -44,6 +45,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
         with(RequestDescriptor) { init() }
         hookAuthorspace()
         hookComment()
+        hookSubtitle()
 
         "com.bilibili.app.authorspace.ui.headerinfo.HeaderInfoMultiLineTags".reflect {
             method("s")?.hookBefore {
@@ -150,6 +152,25 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
             ) { from, to ->
                 val builder = to.toBuilder()
                 builder.reply = replaceLocation(from.reply, to.reply)
+                builder.build()
+            }
+        }
+    }
+
+    private fun BiliFixContext.hookSubtitle() {
+        val handlerClass = "com.bilibili.lib.moss.api.MossResponseHandler".clazz ?: return
+        "com.bapis.bilibili.community.service.dm.v1.DMMoss".reflect {
+            method("dmView")?.doHookMoss(
+                this@hookSubtitle,
+                handlerClass,
+                "com.bapis.bilibili.community.service.dm.v1.DmViewReq".clazz ?: return,
+                "app.bilibili.com",
+                "bilibili.community.service.dm.v1.DM/DmView",
+                { DmViewResponse.parseFrom(it) },
+                { DmViewResponse.getDefaultInstance() }
+            ) { from, to ->
+                val builder = to.toBuilder()
+                builder.subtitle = from.subtitle
                 builder.build()
             }
         }
