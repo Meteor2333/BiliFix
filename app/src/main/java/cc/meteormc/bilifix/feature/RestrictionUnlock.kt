@@ -161,8 +161,8 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
 
     private fun <T : MessageLite> Method.doHookMoss(
         context: BiliFixContext,
-        requestClass: Class<*>,
         handlerClass: Class<*>,
+        requestClass: Class<*>,
         host: String,
         methodName: String,
         parseFrom: (ByteArray) -> T,
