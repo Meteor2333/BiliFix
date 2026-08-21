@@ -38,6 +38,8 @@ import java.util.concurrent.atomic.AtomicReference
 object RestrictionUnlock : BaseHooker<BiliFixContext>() {
     private val okhttp = OkHttpClient()
 
+    private var aggressiveMode = false
+
     override fun BiliFixContext.hook() {
         with(RequestDescriptor) { init() }
         hookAuthorspace()
@@ -125,25 +127,34 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 { CommentListResponse.parseFrom(it) },
                 { CommentListResponse.getDefaultInstance() }
             ) { from, to ->
-                val builder = to.toBuilder()
-                builder.clearReplies()
-                to.repliesList.forEachIndexed { index, it ->
-                    val reply = from.repliesList.getOrNull(index)
-                    builder.addReplies(
-                        if (reply != null) replaceLocation(reply, it) else it
-                    )
+                // 对于这个请求 不同mobi_app的推流不一致 导致评论列表的顺序受影响
+                // 并且它是分页的 一次响应只包含部分评论
+                // 这就导致标准版和国际版在同样的页中 返回的内容不一样 所以在国际版看来会丢失部分评论
+                // 开启激进模式后 直接使用标准版的响应 可以解决此问题
+                // 但与此同时会采用标准版的推流算法
+                if (aggressiveMode) {
+                    return@doHook from
                 }
+
+                val builder = to.toBuilder()
+
+                val repliesList = from.repliesList.associateBy { it.id }
+                for (i in 0 until to.repliesCount) {
+                    val reply = to.repliesList[i]
+                    val target = repliesList[reply.id] ?: continue
+                    builder.setReplies(i, replaceLocation(target, reply))
+                }
+
+                val topRepliesList = from.topRepliesList.associateBy { it.id }
+                for (i in 0 until to.topRepliesCount) {
+                    val reply = to.topRepliesList[i]
+                    val target = topRepliesList[reply.id] ?: continue
+                    builder.setTopReplies(i, replaceLocation(target, reply))
+                }
+
                 builder.upTop = replaceLocation(from.upTop, to.upTop)
                 builder.adminTop = replaceLocation(from.adminTop, to.adminTop)
                 builder.voteTop = replaceLocation(from.voteTop, to.voteTop)
-                builder.clearTopReplies()
-                to.topRepliesList.forEachIndexed { index, it ->
-                    val reply = from.topRepliesList.getOrNull(index)
-                    builder.addReplies(
-                        if (reply != null) replaceLocation(reply, it) else it
-                    )
-                }
-
                 builder.build()
             }
 

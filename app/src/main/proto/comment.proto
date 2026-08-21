@@ -22,6 +22,7 @@ message ReplyInfoResponse {
 
 message ReplyInfo {
   repeated ReplyInfo replies = 1;
+  int64 id = 2;
   ReplyControl reply_control = 14;
   bytes translated_content = 17;
 }
