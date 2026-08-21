@@ -10,9 +10,11 @@ import android.widget.TextView
 import androidx.core.animation.doOnEnd
 import cc.meteormc.bilifix.BiliFixContext
 import cc.meteormc.bilifix.BiliFixModule
+import cc.meteormc.bilifix.R
 import cc.meteormc.bilifix.proto.TranslateReplyRequest
 import cc.meteormc.bilifix.proto.TranslateReplyResponse
-import cc.meteormc.bilifix.R
+import cc.meteormc.bilifix.util.ProtobufTransform.fromHostMessage
+import cc.meteormc.bilifix.util.ProtobufTransform.toHostMessage
 import cc.meteormc.xposedkit.XLog
 import cc.meteormc.xposedkit.call
 import cc.meteormc.xposedkit.findInstances
@@ -22,7 +24,6 @@ import cc.meteormc.xposedkit.hook.HookerContext
 import cc.meteormc.xposedkit.new
 import cc.meteormc.xposedkit.reflect
 import cc.meteormc.xposedkit.util.WeakDelegate
-import com.google.protobuf.MessageLite
 import com.google.protobuf.WireFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -241,17 +242,11 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
         var serviceRef = mossService
         @Suppress("UNCHECKED_CAST")
         "com.bilibili.lib.moss.api.MossServiceImp".reflect {
+            val emptyClass = "com.google.protobuf.Empty".clazz ?: return@reflect
             if (serviceRef == null) {
                 serviceRef = type.findInstances().firstOrNull() ?: return@reflect
                 mossService = serviceRef
             }
-
-            val fromBytes = "com.google.protobuf.Empty".reflect {
-                method("parseFrom", ByteArray::class.java)
-            } ?: return@reflect
-            val toBytes = MessageLite::class.java.name.reflect {
-                method("toByteArray")
-            } ?: return@reflect
 
             if (!::translateReplyMethod.isInitialized) {
                 fun createMarshaller(
@@ -267,9 +262,10 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                         "hashCode" -> System.identityHashCode(proxy)
                         "toString" -> "BiliFixTranslateReply${name}"
                         else -> if (arg is InputStream) {
-                            fromBytes.call<Any>(null, arg.readBytes())
+                            arg.readBytes().toHostMessage(emptyClass)
                         } else if (InputStream::class.java.isAssignableFrom(method.returnType)) {
-                            ByteArrayInputStream(toBytes.call(arg) as ByteArray)
+                            val bytes = arg?.fromHostMessage() ?: return@newProxyInstance null
+                            ByteArrayInputStream(bytes)
                         } else {
                             null
                         }
@@ -309,18 +305,14 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
             val response = method("blockingUnaryCall")?.call<Any>(
                 serviceRef,
                 translateReplyMethod,
-                fromBytes.call<Any>(null, request.toByteArray()),
+                request.toByteArray().toHostMessage(emptyClass),
                 null
-            )
+            ) ?: return@reflect
 
-            val message = TranslateReplyResponse.parseFrom(toBytes.call<ByteArray>(response))
+            val message = TranslateReplyResponse.parseFrom(response.fromHostMessage())
             val reply = message.translatedRepliesMap[item.id] ?: return@reflect
-            val control = "com.bapis.bilibili.main.community.reply.v1.ReplyControl".reflect {
-                method("parseFrom", ByteArray::class.java)?.call<Any>(null, reply.replyControl.toByteArray())
-            }
-            val content = "com.bapis.bilibili.main.community.reply.v1.Content".reflect {
-                method("parseFrom", ByteArray::class.java)?.call<Any>(null, reply.translatedContent.toByteArray())
-            }
+            val control = reply.replyControl.toHostMessage("com.bapis.bilibili.main.community.reply.v1.ReplyControl".clazz!!)
+            val content = reply.translatedContent.toHostMessage("com.bapis.bilibili.main.community.reply.v1.Content".clazz!!)
             translated = "com.bilibili.app.comment3.data.source.v1.b".reflect {
                 method(
                     "com.bapis.bilibili.main.community.reply.v1.Content".clazz!!,

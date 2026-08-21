@@ -13,6 +13,8 @@ import cc.meteormc.bilifix.proto.Network
 import cc.meteormc.bilifix.proto.ReplyInfo
 import cc.meteormc.bilifix.proto.ReplyInfoResponse
 import cc.meteormc.bilifix.util.MetadataParser.metadata
+import cc.meteormc.bilifix.util.ProtobufTransform.fromHostMessage
+import cc.meteormc.bilifix.util.ProtobufTransform.toHostMessage
 import cc.meteormc.xposedkit.XLog
 import cc.meteormc.xposedkit.call
 import cc.meteormc.xposedkit.findInstances
@@ -259,13 +261,13 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 mossProperty("xtraceId"),
 
                 mossProperty("appId"),
-                toBytesMethod.call(mossProperty("fawkesReq")),
+                mossProperty<Any>("fawkesReq").fromHostMessage()!!,
                 mossProperty("fp"),
                 mossProperty("fpLocal"),
                 mossProperty("fpRemote"),
                 mossProperty("fts"),
                 mossProperty("guestId"),
-                toBytesMethod.call(mossProperty("locale")),
+                mossProperty<Any>("locale").fromHostMessage()!!,
                 mossProperty("net"),
                 mossProperty("oid"),
                 mossProperty<Enum<*>>("tf").ordinal,
@@ -295,7 +297,6 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
         private val transform: (T, T) -> T,
         private val originHandler: Any
     ) : InvocationHandler {
-        private val toBytesMethod: Method
         private lateinit var nextMethod: Method
         private lateinit var completedMethod: Method
 
@@ -303,13 +304,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
         private val originResponse = AtomicReference<Any>()
 
         init {
-            with(context) {
-                toBytesMethod = MessageLite::class.java.name.reflect {
-                    method("toByteArray")
-                }!!
-            }
-
-            val bytes = toBytesMethod.call<ByteArray>(request)
+            val bytes = request.fromHostMessage() ?: throw IllegalStateException("Failed to convert request to bytes")
             val frame = ByteBuffer.allocate(5)
             frame.put(0.toByte())
             frame.putInt(bytes.size)
@@ -480,16 +475,8 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
             val extraResponse = extraResponse.get() ?: return
             val originResponse = originResponse.get() ?: return
 
-            val response = parseFrom(toBytesMethod.call(originResponse))
-            val newResponse = originResponse.javaClass.reflect {
-                method(
-                    "parseFrom",
-                    ByteArray::class.java
-                )?.call<Any>(
-                    null,
-                    transform(extraResponse, response).toByteArray()
-                )
-            } ?: return
+            val response = parseFrom(originResponse.fromHostMessage() ?: return)
+            val newResponse = transform(extraResponse, response).toHostMessage(originResponse.javaClass) ?: return
             nextMethod.call<Unit>(originHandler, newResponse)
             completedMethod.call<Unit>(originHandler)
         }

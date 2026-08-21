@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package cc.meteormc.bilifix.proto;
 
+import "google/protobuf/any.proto";
+
 option java_multiple_files = true;
 
 message CommentDetailResponse {
@@ -24,7 +26,7 @@ message ReplyInfo {
   repeated ReplyInfo replies = 1;
   int64 id = 2;
   ReplyControl reply_control = 14;
-  bytes translated_content = 17;
+  google.protobuf.Any translated_content = 17;
 }
 
 message ReplyControl {
