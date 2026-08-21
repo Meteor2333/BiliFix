@@ -29,6 +29,7 @@ object BiliFixModule : XposedModule {
         XLog.level = if (BuildConfig.DEBUG) Log.VERBOSE else Log.INFO
     }
 
+    var initialized = false
     val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onPackageLoaded(param: PackageLoadedParam) {
@@ -55,10 +56,17 @@ object BiliFixModule : XposedModule {
             RestrictionUnlock.installHook(context)
             ProductVariantSpoof.installHook(context)
             RemoveVipBanner.installHook(context)
+            initialized = true
         }
     }
 
     override fun onHotReloading(param: HotReloadingParam): Boolean {
+        if (!initialized) return false
+        CommentTranslationBackport.uninstallHook()
+        PreferencesEntryInject.uninstallHook()
+        RestrictionUnlock.uninstallHook()
+        ProductVariantSpoof.uninstallHook()
+        RemoveVipBanner.uninstallHook()
         ioScope.cancel()
         return super.onHotReloading(param)
     }

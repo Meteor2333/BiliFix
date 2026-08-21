@@ -7,12 +7,14 @@ import cc.meteormc.bilifix.BiliFixContext
 import cc.meteormc.bilifix.R
 import cc.meteormc.bilifix.ui.PreferencesActivity
 import cc.meteormc.bilifix.util.MetadataParser.metadata
+import cc.meteormc.xposedkit.findInstances
 import cc.meteormc.xposedkit.get
 import cc.meteormc.xposedkit.hook.BaseHooker
 import cc.meteormc.xposedkit.hook.InvokeCallback
 import cc.meteormc.xposedkit.new
 import cc.meteormc.xposedkit.reflect
 import kotlinx.metadata.jvm.fieldSignature
+import java.lang.reflect.Field
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -20,6 +22,8 @@ import java.lang.reflect.Proxy
 object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
     private const val ITEM_URI = "bilibili://bilifix/preference"
     private const val ICON_HOST_URL = "https://i0.hdslb.com/bfs/openplatform/96b801ea0d79ead17867b887c842d70205875bff.png"
+
+    private val routerCache = mutableMapOf<Field, MutableList<Pair<Any, Any?>>>()
 
     override fun BiliFixContext.hook() {
         val groupReflect = "com.bilibili.lib.homepage.mine.MenuGroup".reflect ?: return
@@ -46,6 +50,35 @@ object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
             val routerField = managerField.type.reflect {
                 fields(Map::class.java).singleOrNull()
             } ?: return@reflect
+            fun insertRouter(instance: Any) {
+                val manager = managerField[instance] ?: return
+                val router = routerField.get<Map<String, Any>>(manager)
+                val menuItem = router[ITEM_URI] ?: return
+                menuItem.javaClass.reflect {
+                    val field = fields.lastOrNull() ?: return@reflect
+                    val type = field.type
+                    if (!type.isInterface) return@reflect
+
+                    val cache = routerCache.getOrPut(field) { mutableListOf() }
+                    cache.add(menuItem to field.get(menuItem))
+                    field.set(
+                        menuItem,
+                        Proxy.newProxyInstance(
+                            classLoader,
+                            arrayOf(field.type)
+                        ) { proxy, method, args ->
+                            val rtnType = method.returnType
+                            if (!rtnType.isInterface) return@newProxyInstance null
+                            Proxy.newProxyInstance(
+                                classLoader,
+                                arrayOf(rtnType),
+                                ClickHandler(moduleContext)
+                            )
+                        }
+                    )
+                }
+            }
+
             method(
                 Context::class.java,
                 List::class.java,
@@ -58,32 +91,21 @@ object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
                 }
 
                 hookAfter {
-                    val manager = managerField[it.instance] ?: return@hookAfter
-                    val router = routerField.get<Map<String, Any>>(manager)
-                    val menuItem = router[ITEM_URI] ?: return@hookAfter
-                    menuItem.javaClass.reflect {
-                        val field = fields.lastOrNull() ?: return@reflect
-                        val type = field.type
-                        if (!type.isInterface) return@reflect
-                        field.set(
-                            menuItem,
-                            Proxy.newProxyInstance(
-                                classLoader,
-                                arrayOf(field.type)
-                            ) { proxy, method, args ->
-                                val rtnType = method.returnType
-                                if (!rtnType.isInterface) return@newProxyInstance null
-                                Proxy.newProxyInstance(
-                                    classLoader,
-                                    arrayOf(rtnType),
-                                    ClickHandler(moduleContext)
-                                )
-                            }
-                        )
-                    }
+                    insertRouter(it.instance())
                 }
             }
+
+            type.findInstances().forEach {
+                insertRouter(it)
+            }
         }
+    }
+
+    override fun unhook() {
+        routerCache.forEach { (field, status) ->
+            status.forEach { (item, original) -> field.set(item, original) }
+        }
+        routerCache.clear()
     }
 
     private class ClickHandler(private val context: Context) : InvocationHandler {
