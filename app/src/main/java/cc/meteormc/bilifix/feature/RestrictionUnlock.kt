@@ -67,31 +67,6 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
     private fun BiliFixContext.hookComment() {
         val handlerClass = "com.bilibili.lib.moss.api.MossResponseHandler".clazz ?: return
         "com.bapis.bilibili.main.community.reply.v1.ReplyMoss".reflect {
-            fun <T : MessageLite> Method.doHook(
-                requestClass: Class<*>,
-                methodName: String,
-                parseFrom: (ByteArray) -> T,
-                defaultInstance: () -> T,
-                transform: (from: T, to: T) -> T
-            ) = hookBefore {
-                val request = it.findArg(requestClass)!!
-                val handler = it.findArgIndexed(handlerClass)
-                it.args[handler.index] = Proxy.newProxyInstance(
-                    classLoader,
-                    arrayOf(handlerClass),
-                    CommentResponseHandler(
-                        this@hookComment,
-                        request,
-                        methodName,
-                        RequestDescriptor.current(),
-                        parseFrom,
-                        defaultInstance,
-                        transform,
-                        handler.value!!
-                    )
-                )
-            }
-
             fun replaceLocation(from: ReplyInfo, to: ReplyInfo): ReplyInfo {
                 val replyInfoBuilder = to.toBuilder()
 
@@ -110,9 +85,12 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 return replyInfoBuilder.build()
             }
 
-            method("detailList")?.doHook(
+            method("detailList")?.doHookMoss(
+                this@hookComment,
+                handlerClass,
                 "com.bapis.bilibili.main.community.reply.v1.DetailListReq".clazz ?: return,
-                "DetailList",
+                "grpc.biliapi.net",
+                "bilibili.main.community.reply.v1.Reply/DetailList",
                 { CommentDetailResponse.parseFrom(it) },
                 { CommentDetailResponse.getDefaultInstance() }
             ) { from, to ->
@@ -121,9 +99,12 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 builder.build()
             }
 
-            method("mainList")?.doHook(
+            method("mainList")?.doHookMoss(
+                this@hookComment,
+                handlerClass,
                 "com.bapis.bilibili.main.community.reply.v1.MainListReq".clazz ?: return,
-                "MainList",
+                "grpc.biliapi.net",
+                "bilibili.main.community.reply.v1.Reply/MainList",
                 { CommentListResponse.parseFrom(it) },
                 { CommentListResponse.getDefaultInstance() }
             ) { from, to ->
@@ -133,7 +114,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 // 开启激进模式后 直接使用标准版的响应 可以解决此问题
                 // 但与此同时会采用标准版的推流算法
                 if (aggressiveMode) {
-                    return@doHook from
+                    return@doHookMoss from
                 }
 
                 val builder = to.toBuilder()
@@ -158,9 +139,12 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 builder.build()
             }
 
-            method("replyInfo")?.doHook(
+            method("replyInfo")?.doHookMoss(
+                this@hookComment,
+                handlerClass,
                 "com.bapis.bilibili.main.community.reply.v1.ReplyInfoReq".clazz ?: return,
-                "ReplyInfo",
+                "grpc.biliapi.net",
+                "bilibili.main.community.reply.v1.Reply/ReplyInfo",
                 { ReplyInfoResponse.parseFrom(it) },
                 { ReplyInfoResponse.getDefaultInstance() }
             ) { from, to ->
@@ -173,6 +157,37 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
 
     private fun ByteArray.toBase64(): String {
         return Base64.encodeToString(this, Base64.NO_WRAP)
+    }
+
+    private fun <T : MessageLite> Method.doHookMoss(
+        context: BiliFixContext,
+        requestClass: Class<*>,
+        handlerClass: Class<*>,
+        host: String,
+        methodName: String,
+        parseFrom: (ByteArray) -> T,
+        defaultInstance: () -> T,
+        transform: (from: T, to: T) -> T
+    ) = with(context) {
+        hookBefore {
+            val request = it.findArg(requestClass)!!
+            val handler = it.findArgIndexed(handlerClass)
+            it.args[handler.index] = Proxy.newProxyInstance(
+                context.classLoader,
+                arrayOf(handlerClass),
+                CommentResponseHandler(
+                    context,
+                    request,
+                    host,
+                    methodName,
+                    RequestDescriptor.current(),
+                    parseFrom,
+                    defaultInstance,
+                    transform,
+                    handler.value!!
+                )
+            )
+        }
     }
 
     private data class RequestDescriptor(
@@ -251,6 +266,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
     private class CommentResponseHandler<T : MessageLite>(
         context: HookerContext,
         request: Any,
+        host: String,
         method: String,
         descriptor: RequestDescriptor,
         private val parseFrom: (ByteArray) -> T,
@@ -277,7 +293,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
             frame.put(0.toByte())
             frame.putInt(bytes.size)
             val request = Request.Builder()
-                .url("https://grpc.biliapi.net/bilibili.main.community.reply.v1.Reply/$method")
+                .url("https://$host/$method")
                 .headers(
                     Headers.Builder().apply {
                         add(
