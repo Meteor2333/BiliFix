@@ -164,8 +164,9 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 val builder = to.toBuilder()
                 builder.clearReplies()
                 to.repliesList.forEachIndexed { index, it ->
+                    val reply = from.repliesList.getOrNull(index)
                     builder.addReplies(
-                        replaceLocation(from.repliesList[index], it)
+                        if (reply != null) replaceLocation(reply, it) else it
                     )
                 }
                 builder.upTop = replaceLocation(from.upTop, to.upTop)
@@ -173,8 +174,9 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 builder.voteTop = replaceLocation(from.voteTop, to.voteTop)
                 builder.clearTopReplies()
                 to.topRepliesList.forEachIndexed { index, it ->
+                    val reply = from.topRepliesList.getOrNull(index)
                     builder.addReplies(
-                        replaceLocation(from.topRepliesList[index], it)
+                        if (reply != null) replaceLocation(reply, it) else it
                     )
                 }
 
