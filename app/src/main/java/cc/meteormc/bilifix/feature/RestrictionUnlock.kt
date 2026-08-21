@@ -1,5 +1,6 @@
 package cc.meteormc.bilifix.feature
 
+import android.content.pm.PackageInfo
 import android.os.Build
 import android.util.Base64
 import cc.meteormc.bilifix.BiliFixContext
@@ -38,6 +39,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
     private val okhttp = OkHttpClient()
 
     override fun BiliFixContext.hook() {
+        with(RequestDescriptor) { init() }
         hookAuthorspace()
         hookComment()
 
@@ -62,20 +64,6 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
 
     private fun BiliFixContext.hookComment() {
         val handlerClass = "com.bilibili.lib.moss.api.MossResponseHandler".clazz ?: return
-        val toByteArrayMethod = MessageLite::class.java.name.reflect {
-            method("toByteArray")
-        } ?: return
-
-        val mossApiClass = $$"com.bilibili.gripper.container.moss.InitMoss$c".clazz ?: return
-        val mossApiMetadata = mossApiClass.metadata ?: return
-        val mossReflect = mossApiClass.reflect
-        val mossInstance by lazy { mossApiClass.findInstances().first() }
-        fun <T> mossProperty(name: String): T {
-            val property = mossApiMetadata.properties.first { it.name == name }
-            return mossReflect.method(property.getterSignature!!.name)!!.call(mossInstance)
-        }
-
-        val pkgInfo = hostContext.packageManager.getPackageInfo(hostContext.packageName, 0) ?: return
         "com.bapis.bilibili.main.community.reply.v1.ReplyMoss".reflect {
             fun <T : MessageLite> Method.doHook(
                 requestClass: Class<*>,
@@ -93,31 +81,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                         this@hookComment,
                         request,
                         methodName,
-                        RequestDescriptor(
-                            mossProperty("accessKey"),
-                            mossProperty("auroraEid"),
-                            mossProperty("auroraMid"),
-                            mossProperty("buvid"),
-                            mossProperty("xtraceId"),
-
-                            mossProperty("appId"),
-                            toByteArrayMethod.call(mossProperty("fawkesReq")),
-                            mossProperty("fp"),
-                            mossProperty("fpLocal"),
-                            mossProperty("fpRemote"),
-                            mossProperty("fts"),
-                            mossProperty("guestId"),
-                            toByteArrayMethod.call(mossProperty("locale")),
-                            mossProperty("net"),
-                            mossProperty("oid"),
-                            mossProperty<Enum<*>>("tf").ordinal,
-
-                            "android",
-                            "android",
-                            "master",
-                            pkgInfo.versionName ?: "",
-                            @Suppress("DEPRECATION") pkgInfo.versionCode
-                        ),
+                        RequestDescriptor.current(),
                         parseFrom,
                         defaultInstance,
                         transform,
@@ -224,7 +188,54 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
         val channel: String,
         val versionName: String,
         val versionCode: Int
-    )
+    ) {
+        companion object {
+            private lateinit var pkgInfo: PackageInfo
+            private lateinit var toBytesMethod: Method
+            private lateinit var mossApiClass: Class<*>
+            private val mossApiMetadata by lazy { mossApiClass.metadata!! }
+            private val mossInstance by lazy { mossApiClass.findInstances().first() }
+
+            fun BiliFixContext.init() {
+                pkgInfo = hostContext.packageManager.getPackageInfo(hostContext.packageName, 0)
+                toBytesMethod = MessageLite::class.java.name.reflect {
+                    method("toByteArray")
+                }!!
+                mossApiClass = $$"com.bilibili.gripper.container.moss.InitMoss$c".clazz!!
+            }
+
+            fun current() = RequestDescriptor(
+                mossProperty("accessKey"),
+                mossProperty("auroraEid"),
+                mossProperty("auroraMid"),
+                mossProperty("buvid"),
+                mossProperty("xtraceId"),
+
+                mossProperty("appId"),
+                toBytesMethod.call(mossProperty("fawkesReq")),
+                mossProperty("fp"),
+                mossProperty("fpLocal"),
+                mossProperty("fpRemote"),
+                mossProperty("fts"),
+                mossProperty("guestId"),
+                toBytesMethod.call(mossProperty("locale")),
+                mossProperty("net"),
+                mossProperty("oid"),
+                mossProperty<Enum<*>>("tf").ordinal,
+
+                "android",
+                "android",
+                "master",
+                pkgInfo.versionName ?: "",
+                @Suppress("DEPRECATION") pkgInfo.versionCode
+            )
+
+            private fun <T> mossProperty(name: String): T {
+                val property = mossApiMetadata.properties.first { it.name == name }
+                return mossApiClass.reflect.method(property.getterSignature!!.name)!!.call(mossInstance)
+            }
+        }
+    }
 
     private class CommentResponseHandler<T : MessageLite>(
         context: HookerContext,
