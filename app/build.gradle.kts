@@ -42,6 +42,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.metadata)
     implementation(libs.okhttp)
+    implementation(libs.okhttp.coroutines)
     implementation(libs.protobuf.java)
     implementation(libs.protobuf.kotlin)
 }

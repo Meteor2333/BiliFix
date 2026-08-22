@@ -4,6 +4,7 @@ import android.content.pm.PackageInfo
 import android.os.Build
 import android.util.Base64
 import cc.meteormc.bilifix.BiliFixContext
+import cc.meteormc.bilifix.BiliFixModule
 import cc.meteormc.bilifix.proto.CommentDetailResponse
 import cc.meteormc.bilifix.proto.CommentListResponse
 import cc.meteormc.bilifix.proto.Device
@@ -17,25 +18,37 @@ import cc.meteormc.bilifix.util.ProtobufTransform.fromHostMessage
 import cc.meteormc.bilifix.util.ProtobufTransform.toHostMessage
 import cc.meteormc.xposedkit.XLog
 import cc.meteormc.xposedkit.call
+import cc.meteormc.xposedkit.callOriginal
 import cc.meteormc.xposedkit.findInstances
+import cc.meteormc.xposedkit.get
 import cc.meteormc.xposedkit.hook.BaseHooker
 import cc.meteormc.xposedkit.hook.HookerContext
 import cc.meteormc.xposedkit.reflect
 import com.google.protobuf.MessageLite
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.metadata.jvm.getterSignature
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.coroutines.executeAsync
 import okio.IOException
+import org.json.JSONObject
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 import java.nio.ByteBuffer
+import java.util.Calendar
+import java.util.SortedMap
+import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicReference
 
 object RestrictionUnlock : BaseHooker<BiliFixContext>() {
@@ -45,27 +58,76 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
 
     override fun BiliFixContext.hook() {
         with(RequestDescriptor) { init() }
+        RestApiSender.apply { init() }
         hookAuthorspace()
         hookComment()
         hookSubtitle()
-
-        "com.bilibili.app.authorspace.ui.headerinfo.HeaderInfoMultiLineTags".reflect {
-            method("s")?.hookBefore {
-                val headerTag = it.findArg<List<*>>().ifEmpty { return@hookBefore }
-                "com.bilibili.app.authorspace.api.BiliHeaderTag".reflect {
-                    headerTag.forEach { t ->
-                        declaredFields.forEach { field ->
-                            XLog.d(tag, "${field.name} -> ${field.get(t)}")
-                        }
-                        XLog.d(tag, "-----------------------------")
-                    }
-                }
-            }
-        }
     }
 
     private fun BiliFixContext.hookAuthorspace() {
+        val tagClass = "com.bilibili.app.authorspace.api.BiliHeaderTag".clazz ?: return
 
+        val spaceReflect = "com.bilibili.app.authorspace.api.BiliSpace".reflect ?: return
+        val spaceClass = spaceReflect.type
+        val cardField = spaceReflect.field("card") ?: return
+
+        val cardReflect = "com.bilibili.app.authorspace.api.BiliMemberCard".reflect ?: return
+        val midField = cardReflect.field("mMid") ?: return
+        val tagsField = cardReflect.field("tags") ?: return
+
+        val parseJsonMethod = "com.alibaba.fastjson.JSON".reflect {
+            method(
+                "parseObject",
+                String::class.java,
+                Class::class.java
+            )
+        } ?: return
+
+        "com.bilibili.app.authorspace.ui.AuthorSpaceActivity".reflect {
+            type.declaredClasses.firstNotNullOfOrNull {
+               it.reflect.method(spaceClass)
+            }
+        }?.hookBefore {
+            val instance = it.instance
+            val method = it.member as Method
+            val space = it.findArg(spaceClass) ?: return@hookBefore
+            val card = cardField[space] ?: return@hookBefore
+            if (!tagsField.get<List<Any>?>(card).isNullOrEmpty()) return@hookBefore
+            BiliFixModule.ioScope.launch {
+                val response = RestApiSender.sendRequest(
+                    "https://app.bilibili.com/x/v2/space",
+                    "GET",
+                    "vmid" to midField.get<Long>(card).toString()
+                )
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body.string())
+                    val code = json.optInt("code")
+                    val message = json.optString("message")
+                    if (code != 0) {
+                        XLog.w(tag, "Unexpected authorspace response: $message(code: $code)")
+                    }
+
+                    val tags = json.optJSONObject("data")
+                        ?.getJSONObject("card")
+                        ?.getJSONArray("space_tag")
+                        ?.let { array ->
+                            (0 until array.length()).map { i ->
+                                parseJsonMethod.call<Any>(null, array.getString(i), tagClass)
+                            }
+                        }
+                        .orEmpty()
+                    tagsField[card] = tags
+                } else {
+                    XLog.e(tag, "Failed to fetch authorspace: ${response.message}(code: ${response.code})")
+                }
+
+                withContext(Dispatchers.Main) {
+                    method.callOriginal(instance, space)
+                }
+            }
+
+            it.cancel()
+        }
     }
 
     private fun BiliFixContext.hookComment() {
@@ -283,6 +345,114 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 val property = mossApiMetadata.properties.first { it.name == name }
                 return mossApiClass.reflect.method(property.getterSignature!!.name)!!.call(mossInstance)
             }
+        }
+    }
+
+    private object RestApiSender {
+        private lateinit var appkeyMethod: Method
+        private lateinit var signMethod: Method
+
+        fun HookerContext.init() {
+            "com.bilibili.nativelibrary.LibBili".reflect {
+                appkeyMethod = methods(String::class.java).singleOrNull {
+                    val mod = it.modifiers
+                    Modifier.isStatic(mod) && Modifier.isNative(mod) && it.returnType == String::class.java
+                } ?: return
+                signMethod = methods(SortedMap::class.java).singleOrNull {
+                    val mod = it.modifiers
+                    Modifier.isStatic(mod) && Modifier.isNative(mod)
+                } ?: return
+            }
+        }
+
+        suspend fun sendRequest(
+            url: String,
+            method: String,
+            vararg query: Pair<String, String>
+        ) = withContext(Dispatchers.IO) {
+            val descriptor = RequestDescriptor.current()
+            val query = TreeMap<String, String>().apply {
+                put("access_key", descriptor.accessKey)
+                put("appkey", appkeyMethod.call(null, descriptor.product))
+                put("build", descriptor.versionCode.toString())
+                put("channel", descriptor.channel)
+                put("local_time", (Calendar.getInstance().timeZone.rawOffset / 3600000).toString())
+                put("mobi_app", descriptor.product)
+                put("platform", descriptor.platform)
+                put("player_net", descriptor.network.toString())
+                putAll(query)
+            }
+            val request = Request.Builder()
+                .url(
+                    url.toHttpUrl()
+                        .newBuilder()
+                        .query(signMethod.call<Any>(null, query).toString())
+                        .build()
+                )
+                .headers(
+                    Headers.Builder().apply {
+                        add(
+                            "User-Agent",
+                            buildString {
+                                append("Mozilla/5.0 BiliDroid/3.20.4 (bbcallen@gmail.com) ")
+
+                                append("os/${descriptor.platform} ")
+                                append("model/${Build.MODEL} ")
+                                append("mobi_app/${descriptor.product} ")
+                                append("build/${descriptor.versionCode} ")
+                                append("channel/${descriptor.channel} ")
+                                append("innerVer/${descriptor.versionCode} ")
+                                append("osVer/${Build.VERSION.RELEASE} ")
+                                append("network/2 ")
+                            }
+                        )
+
+                        add(
+                            "authorization",
+                            "identify_v1 ${descriptor.accessKey}"
+                        )
+                        add(
+                            "fp-local",
+                            descriptor.fingerprintLocal
+                        )
+                        add(
+                            "fp-remote",
+                            descriptor.fingerprintRemote
+                        )
+                        add(
+                            "guestid",
+                            descriptor.guestId
+                        )
+                        add(
+                            "env",
+                            "prod"
+                        )
+                        add(
+                            "app-key",
+                            descriptor.product
+                        )
+
+                        add(
+                            "x-bili-aurora-eid",
+                            descriptor.auroraEid
+                        )
+                        add(
+                            "x-bili-aurora-zone",
+                            ""
+                        )
+                        add(
+                            "x-bili-mid",
+                            descriptor.auroraMid
+                        )
+                        add(
+                            "x-bili-trace-id",
+                            descriptor.traceId
+                        )
+                    }.build()
+                )
+                .method(method, null)
+                .build()
+            okhttp.newCall(request).executeAsync()
         }
     }
 
