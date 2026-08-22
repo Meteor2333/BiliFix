@@ -198,7 +198,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
             it.args[handler.index] = Proxy.newProxyInstance(
                 context.classLoader,
                 arrayOf(handlerClass),
-                CommentResponseHandler(
+                MossResponseHandler(
                     context,
                     request,
                     host,
@@ -286,7 +286,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
         }
     }
 
-    private class CommentResponseHandler<T : MessageLite>(
+    private class MossResponseHandler<T : MessageLite>(
         context: HookerContext,
         request: Any,
         host: String,
@@ -436,7 +436,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
                 }
 
                 override fun onFailure(call: Call, e: IOException) {
-                    XLog.w(tag, "Failed to fetch comment response", e)
+                    XLog.w(tag, "Failed to fetch moss response", e)
                     extraResponse.set(defaultInstance())
                     tryHandleResponse()
                 }
@@ -451,7 +451,7 @@ object RestrictionUnlock : BaseHooker<BiliFixContext>() {
             return when (method.name) {
                 "equals" -> args?.firstOrNull() == proxy
                 "hashCode" -> System.identityHashCode(proxy)
-                "toString" -> "BiliFixCommentResponseHandler"
+                "toString" -> "BiliFixMossResponseHandler"
                 "onCompleted", "onError" -> {
                     completedMethod = method
                     tryHandleResponse()
