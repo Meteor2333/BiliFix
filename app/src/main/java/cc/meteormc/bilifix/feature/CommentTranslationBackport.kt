@@ -130,7 +130,7 @@ object CommentTranslationBackport : BaseHooker<BiliFixContext>() {
                         moduleContext.getDrawable(R.drawable.ic_translate_16dp)
                     )
                     setOnClickListener { _ ->
-                        val commentItem = commentItemField.get(instance)?.toModel(this@hook) ?: return@setOnClickListener
+                        val commentItem = commentItemField[instance]?.toModel(this@hook) ?: return@setOnClickListener
                         val translationState = when (commentItem.translationState) {
                             TranslationState.ORIGIN -> TranslationState.TRANSLATION
                             TranslationState.TRANSLATION -> TranslationState.ORIGIN

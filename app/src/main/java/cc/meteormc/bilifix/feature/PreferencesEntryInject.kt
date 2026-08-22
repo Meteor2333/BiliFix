@@ -60,7 +60,7 @@ object PreferencesEntryInject : BaseHooker<BiliFixContext>() {
                     if (!type.isInterface) return@reflect
 
                     val cache = routerCache.getOrPut(field) { mutableListOf() }
-                    cache.add(menuItem to field.get(menuItem))
+                    cache.add(menuItem to field[menuItem])
                     field.set(
                         menuItem,
                         Proxy.newProxyInstance(
